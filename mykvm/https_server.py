@@ -346,6 +346,7 @@ def run(server: Server, listen_addr: str, port: int,
     """
     # Create SSL context
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
     ssl_context.load_cert_chain(cert_path, key_path)
     # Prefer ChaCha20-Poly1305 for better performance on devices without AES hardware
     try:

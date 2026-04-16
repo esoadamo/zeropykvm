@@ -187,9 +187,13 @@ class TestInvalidMessages:
         server = MockServer()
         msg = json.dumps({"event": "keydown"})
         handle_message(server, msg)
-        # Should not crash, type defaults to None which doesn't match
+        # Should not crash: type defaults to None which doesn't match any handler
+        assert len(server.keyboard.events) == 0
+        assert len(server.mouse.events) == 0
 
     def test_empty_string(self):
         server = MockServer()
         handle_message(server, "")
-        # Should not crash
+        # Should not crash: empty string is invalid JSON, no events processed
+        assert len(server.keyboard.events) == 0
+        assert len(server.mouse.events) == 0
