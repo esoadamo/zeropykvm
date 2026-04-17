@@ -2,6 +2,8 @@
 
 A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig](https://github.com/darkyzhou/mykvm) to Python.
 
+> **Attribution:** This project is a Python port of [darkyzhou/mykvm](https://github.com/darkyzhou/mykvm), originally written in Zig. All credit for the architecture and design goes to the original author.
+
 ## Features
 
 - **Zero-copy video pipeline**: Uses Linux DMA-BUF to share buffers between capture device (TC358743) and hardware H.264 encoder (bcm2835-codec)
@@ -9,6 +11,7 @@ A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig]
 - **HTTPS + WebSocket**: Serves a web frontend over HTTPS with WebSocket for real-time video streaming and HID control
 - **E-Paper display**: Optional status display on Waveshare EPD 2in13 V4
 - **EDID management**: Sets custom EDID on the HDMI capture device for resolution control
+- **No external runtime dependencies**: Uses only Python standard library modules
 
 ## Architecture
 
@@ -34,16 +37,27 @@ The Python rewrite mirrors the original Zig project's architecture:
 
 ## Requirements
 
-- Python >= 3.9
+- Python >= 3.12
 - Linux with V4L2 support (Raspberry Pi OS recommended)
 - TC358743 HDMI capture device
 - bcm2835-codec hardware encoder
 - USB gadget support (dwc2 overlay)
+- [uv](https://docs.astral.sh/uv/) (recommended for dependency management)
 
 ## Installation
 
 ```bash
-pip install -e ".[dev]"
+# Using uv (recommended)
+uv sync
+
+# Or with pip
+pip install -e .
+
+# With development tools
+uv sync --extra dev
+
+# With e-Paper display support (on Raspberry Pi)
+uv sync --extra epaper
 ```
 
 ## Usage
@@ -53,23 +67,23 @@ pip install -e ".[dev]"
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
 
 # Run MyKVM
-mykvm --cert cert.pem --key key.pem
+uv run mykvm --cert cert.pem --key key.pem
 
 # With custom settings
-mykvm --cert cert.pem --key key.pem --port 443 --bitrate 2000000
+uv run mykvm --cert cert.pem --key key.pem --port 443 --bitrate 2000000
 ```
 
 ## Testing
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with verbose output
-pytest -v
+uv run pytest -v
 
 # Run specific test module
-pytest tests/test_usb.py -v
+uv run pytest tests/test_usb.py -v
 ```
 
 ## License

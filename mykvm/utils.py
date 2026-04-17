@@ -12,7 +12,10 @@ import struct
 logger = logging.getLogger(__name__)
 
 # Load libc for ioctl
-_libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+_libc_path = ctypes.util.find_library("c")
+if _libc_path is None:
+    raise RuntimeError("Could not find libc; ioctl support is unavailable")
+_libc = ctypes.CDLL(_libc_path, use_errno=True)
 
 
 def ioctl(fd: int, request: int, arg) -> int:

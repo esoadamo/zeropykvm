@@ -54,9 +54,6 @@ def main():
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-    # Suppress verbose websocket logs
-    logging.getLogger("websockets").setLevel(logging.WARNING)
-
     # Parse command-line arguments
     config = parse_args()
 

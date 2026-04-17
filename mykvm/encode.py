@@ -13,7 +13,6 @@ import mmap
 import os
 import select
 from dataclasses import dataclass
-from typing import Optional
 
 from . import v4l2
 from .dma import DmaBuffer
@@ -22,7 +21,10 @@ from .utils import fourcc_to_string, ioctl_raw
 logger = logging.getLogger(__name__)
 
 # Load libc for mmap/munmap
-_libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+_libc_path = ctypes.util.find_library("c")
+if _libc_path is None:
+    raise RuntimeError("Could not find libc; encoder support is unavailable")
+_libc = ctypes.CDLL(_libc_path, use_errno=True)
 
 
 @dataclass
@@ -43,15 +45,15 @@ class EncoderConfig:
     output_format: int = v4l2.V4L2_PIX_FMT_H264
     bitrate: int = 1_000_000
     gop_size: int = 3
-    bytesperline: Optional[int] = None
-    sizeimage: Optional[int] = None
+    bytesperline: int | None = None
+    sizeimage: int | None = None
 
 
 @dataclass
 class EncodeResult:
     """Result of encoding a frame."""
     data: bytes
-    reclaimed_idx: Optional[int]
+    reclaimed_idx: int | None
 
 
 def _set_control(fd: int, ctrl_id: int, value: int) -> None:
@@ -70,7 +72,7 @@ class Encoder:
 
     def __init__(self):
         self.fd: int = -1
-        self.config: Optional[EncoderConfig] = None
+        self.config: EncoderConfig | None = None
         self.num_buffers: int = 0
         self.input_sizeimage: int = 0
         self.dmabuf_fds: list[int] = []
@@ -319,7 +321,7 @@ class Encoder:
 
         return EncodeResult(data=encoded_data, reclaimed_idx=reclaimed)
 
-    def reclaim_output_buffer(self) -> Optional[int]:
+    def reclaim_output_buffer(self) -> int | None:
         """Try to reclaim an OUTPUT buffer.
 
         Returns:

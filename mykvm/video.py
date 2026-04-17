@@ -216,8 +216,8 @@ def run(server: Server, capture_device: str, encoder_device: str,
         if not first_run:
             logger.info("Attempting to recover connection...")
             try:
-                signal = wait_for_signal(capture_device, 300)
-                logger.info("Signal recovered: %dx%d", signal.width, signal.height)
+                sig = wait_for_signal(capture_device, 300)
+                logger.info("Signal recovered: %dx%d", sig.width, sig.height)
             except (TimeoutError, OSError) as e:
                 logger.error("Recovery failed (signal wait): %s", e)
                 time.sleep(2)

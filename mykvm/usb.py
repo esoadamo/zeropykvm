@@ -7,12 +7,12 @@ Creates TWO separate HID devices for better BIOS compatibility:
 Reference: https://github.com/stjeong/rasp_vusb
 """
 
+import errno as errno_mod
 import logging
 import os
 import struct
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -223,12 +223,12 @@ SCANCODE_MAP = {
 }
 
 
-def _get_modifier_bit(code: str) -> Optional[int]:
+def _get_modifier_bit(code: str) -> int | None:
     """Get modifier bit for modifier keys."""
     return MODIFIER_BIT_MAP.get(code)
 
 
-def _get_scancode(code: str) -> Optional[int]:
+def _get_scancode(code: str) -> int | None:
     """Get USB HID scancode for a KeyboardEvent.code value."""
     return SCANCODE_MAP.get(code)
 
@@ -248,7 +248,7 @@ class HidDevice:
 
     def __init__(self, device_path: str):
         self.device_path = device_path
-        self.file: Optional[int] = None  # File descriptor
+        self.file: int | None = None  # File descriptor
         self.disconnected = False
         self.blocked_until_ns = 0
         self.last_error_ns = 0
@@ -318,7 +318,6 @@ class HidDevice:
 
     def _handle_write_error(self, err: OSError, now: int) -> None:
         """Handle write errors with appropriate response."""
-        import errno as errno_mod
         if err.errno in (errno_mod.EBADF, errno_mod.EIO, errno_mod.EPIPE):
             # Transport error - device disconnected
             self._mark_disconnected(now)
@@ -641,8 +640,8 @@ def _activate_gadget() -> None:
 
 def _create_gadget() -> None:
     """Create and configure the USB HID gadget through ConfigFS."""
-    # Create gadget directory
-    os.makedirs(GADGET_PATH, exist_ok=False)
+    # Create gadget directory (exist_ok=True to handle races)
+    os.makedirs(GADGET_PATH, exist_ok=True)
 
     # Write USB descriptor values
     _write_file(os.path.join(GADGET_PATH, "idVendor"), "0x1d6b")  # Linux Foundation
@@ -674,7 +673,10 @@ def _create_gadget() -> None:
     _write_file(os.path.join(kbd_path, "report_desc"), KEYBOARD_REPORT_DESC)
 
     # Create symlink for keyboard
-    os.symlink(kbd_path, os.path.join(config_path, "hid.usb0"))
+    try:
+        os.symlink(kbd_path, os.path.join(config_path, "hid.usb0"))
+    except FileExistsError:
+        pass
 
     # Create Mouse HID function (hid.usb1)
     mouse_path = os.path.join(GADGET_PATH, "functions", "hid.usb1")
@@ -685,7 +687,10 @@ def _create_gadget() -> None:
     _write_file(os.path.join(mouse_path, "report_desc"), MOUSE_REPORT_DESC)
 
     # Create symlink for mouse
-    os.symlink(mouse_path, os.path.join(config_path, "hid.usb1"))
+    try:
+        os.symlink(mouse_path, os.path.join(config_path, "hid.usb1"))
+    except FileExistsError:
+        pass
 
     # Activate gadget
     _activate_gadget()
