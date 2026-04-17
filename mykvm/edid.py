@@ -145,8 +145,8 @@ def _query_and_apply_dv_timings(fd: int, apply: bool) -> SignalInfo:
         ioctl_raw(fd, v4l2.VIDIOC_S_DV_TIMINGS, ctypes.byref(timings))
 
     # Calculate FPS from pixel clock and total dimensions
-    tot_height = (bt.height + bt.vfrontporch + bt.vsync + bt.vbackporch +
-                  bt.il_vfrontporch + bt.il_vsync + bt.il_vbackporch)
+    tot_height = (bt.height + bt.vfrontporch + bt.vsync + bt.vbackporch
+                  + bt.il_vfrontporch + bt.il_vsync + bt.il_vbackporch)
     tot_width = bt.width + bt.hfrontporch + bt.hsync + bt.hbackporch
 
     if tot_width > 0 and tot_height > 0:

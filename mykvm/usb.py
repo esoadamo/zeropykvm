@@ -44,7 +44,7 @@ def _read_udc_state() -> str:
 
     path = f"/sys/class/udc/{_g_udc_name}/state"
     try:
-        with open(path, "r") as f:
+        with open(path, "r", encoding="ascii") as f:
             state_str = f.read().strip()
         return UDC_STATE_MAP.get(state_str, "unknown")
     except OSError:
@@ -582,9 +582,12 @@ def _write_file(path: str, content: str | bytes) -> None:
         OSError: If writing fails.
     """
     try:
-        mode = "wb" if isinstance(content, bytes) else "w"
-        with open(path, mode) as f:
-            f.write(content)
+        if isinstance(content, bytes):
+            with open(path, "wb") as f:
+                f.write(content)
+        else:
+            with open(path, "w", encoding="ascii") as f:
+                f.write(content)
     except OSError as e:
         logger.error("Failed to write to %s: %s", path, e)
         raise
