@@ -7,11 +7,11 @@ These constants are derived from the Linux kernel headers:
 """
 
 import ctypes
-import struct
 
 # ============================================================================
 # FourCC pixel formats
 # ============================================================================
+
 
 def v4l2_fourcc(a: str, b: str, c: str, d: str) -> int:
     """Create a V4L2 FourCC code from 4 characters."""
@@ -65,7 +65,7 @@ V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME = 0x009909E5
 V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE = 1
 
 # ============================================================================
-# ioctl request numbers (architecture-dependent, for ARM64/aarch64)
+# ioctl request number helpers
 # ============================================================================
 
 # ioctl direction bits
@@ -85,8 +85,8 @@ _IOC_DIRSHIFT = _IOC_SIZESHIFT + _IOC_SIZEBITS
 
 
 def _IOC(direction: int, type_: int, nr: int, size: int) -> int:
-    return (direction << _IOC_DIRSHIFT) | (type_ << _IOC_TYPESHIFT) | \
-           (nr << _IOC_NRSHIFT) | (size << _IOC_SIZESHIFT)
+    return ((direction << _IOC_DIRSHIFT) | (type_ << _IOC_TYPESHIFT)
+            | (nr << _IOC_NRSHIFT) | (size << _IOC_SIZESHIFT))
 
 
 def _IOR(type_: int, nr: int, size: int) -> int:
@@ -101,39 +101,12 @@ def _IOWR(type_: int, nr: int, size: int) -> int:
     return _IOC(_IOC_READ | _IOC_WRITE, type_, nr, size)
 
 
-# V4L2 ioctl codes
-_V = ord('V')
-
-VIDIOC_QUERYCAP = _IOR(_V, 0, 104)  # struct v4l2_capability
-VIDIOC_G_FMT = _IOWR(_V, 4, 208)  # struct v4l2_format
-VIDIOC_S_FMT = _IOWR(_V, 5, 208)  # struct v4l2_format
-VIDIOC_REQBUFS = _IOWR(_V, 8, 20)  # struct v4l2_requestbuffers
-VIDIOC_QUERYBUF = _IOWR(_V, 9, 88)  # struct v4l2_buffer (single-plane)
-VIDIOC_QBUF = _IOWR(_V, 15, 88)  # struct v4l2_buffer
-VIDIOC_DQBUF = _IOWR(_V, 17, 88)  # struct v4l2_buffer
-VIDIOC_STREAMON = _IOW(_V, 18, 4)  # int
-VIDIOC_STREAMOFF = _IOW(_V, 19, 4)  # int
-VIDIOC_S_CTRL = _IOWR(_V, 28, 8)  # struct v4l2_control
-VIDIOC_QUERY_DV_TIMINGS = _IOR(_V, 99, 136)  # struct v4l2_dv_timings
-VIDIOC_S_DV_TIMINGS = _IOWR(_V, 87, 136)  # struct v4l2_dv_timings
-VIDIOC_S_EDID = _IOWR(_V, 41, 1032)  # struct v4l2_edid
-
-# ============================================================================
-# DMA heap / DMA buf ioctl
-# ============================================================================
-
-# struct dma_heap_allocation_data size = 32
-DMA_HEAP_IOCTL_ALLOC = _IOWR(ord('H'), 0, 32)
-
 # DMA_BUF_SYNC flags
 DMA_BUF_SYNC_READ = 1
 DMA_BUF_SYNC_WRITE = 2
 DMA_BUF_SYNC_RW = DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE
 DMA_BUF_SYNC_START = 0
 DMA_BUF_SYNC_END = 4
-
-# struct dma_buf_sync size = 8
-DMA_BUF_IOCTL_SYNC = _IOW(ord('b'), 0, 8)
 
 # ============================================================================
 # ctypes structures for V4L2
@@ -350,3 +323,33 @@ class dma_buf_sync(ctypes.Structure):
     _fields_ = [
         ('flags', ctypes.c_uint64),
     ]
+
+
+# ============================================================================
+# V4L2 ioctl request numbers (using ctypes.sizeof for portability)
+# ============================================================================
+
+_V = ord('V')
+
+VIDIOC_QUERYCAP = _IOR(_V, 0, ctypes.sizeof(v4l2_capability))
+VIDIOC_G_FMT = _IOWR(_V, 4, ctypes.sizeof(v4l2_format))
+VIDIOC_S_FMT = _IOWR(_V, 5, ctypes.sizeof(v4l2_format))
+VIDIOC_REQBUFS = _IOWR(_V, 8, ctypes.sizeof(v4l2_requestbuffers))
+VIDIOC_QUERYBUF = _IOWR(_V, 9, ctypes.sizeof(v4l2_buffer))
+VIDIOC_QBUF = _IOWR(_V, 15, ctypes.sizeof(v4l2_buffer))
+VIDIOC_DQBUF = _IOWR(_V, 17, ctypes.sizeof(v4l2_buffer))
+VIDIOC_STREAMON = _IOW(_V, 18, ctypes.sizeof(ctypes.c_int))
+VIDIOC_STREAMOFF = _IOW(_V, 19, ctypes.sizeof(ctypes.c_int))
+VIDIOC_S_CTRL = _IOWR(_V, 28, ctypes.sizeof(v4l2_control))
+VIDIOC_QUERY_DV_TIMINGS = _IOR(_V, 99, ctypes.sizeof(v4l2_dv_timings))
+VIDIOC_S_DV_TIMINGS = _IOWR(_V, 87, ctypes.sizeof(v4l2_dv_timings))
+VIDIOC_S_EDID = _IOWR(_V, 41, ctypes.sizeof(v4l2_edid))
+
+# ============================================================================
+# DMA heap / DMA buf ioctl numbers
+# ============================================================================
+
+DMA_HEAP_IOCTL_ALLOC = _IOWR(
+    ord('H'), 0, ctypes.sizeof(dma_heap_allocation_data)
+)
+DMA_BUF_IOCTL_SYNC = _IOW(ord('b'), 0, ctypes.sizeof(dma_buf_sync))

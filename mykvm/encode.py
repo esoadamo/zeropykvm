@@ -155,7 +155,7 @@ class Encoder:
             _set_control(self.fd, v4l2.V4L2_CID_MPEG_VIDEO_GOP_SIZE, config.gop_size)
             _set_control(self.fd, v4l2.V4L2_CID_MPEG_VIDEO_B_FRAMES, 0)
             _set_control(self.fd, v4l2.V4L2_CID_MPEG_VIDEO_H264_PROFILE,
-                          v4l2.V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE)
+                         v4l2.V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE)
             _set_control(self.fd, v4l2.V4L2_CID_MPEG_VIDEO_REPEAT_SEQ_HEADER, 1)
 
             self.num_buffers = len(dmabuf_buffers)

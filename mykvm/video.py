@@ -62,8 +62,10 @@ def _probe_format(device: str) -> dict:
         bytesperline = fmt.fmt.pix.bytesperline
 
         fmt_str = fourcc_to_string(fmt.fmt.pix.pixelformat)
-        logger.info("Probe: Format %s %dx%d, sizeimage=%d, bytesperline=%d",
-                     fmt_str, width, height, buffer_size, bytesperline)
+        logger.info(
+            "Probe: Format %s %dx%d, sizeimage=%d, bytesperline=%d",
+            fmt_str, width, height, buffer_size, bytesperline,
+        )
 
         return {
             "width": width,
@@ -75,8 +77,9 @@ def _probe_format(device: str) -> dict:
         os.close(fd)
 
 
-def _run_session(server: Server, capture_device: str, encoder_device: str,
-                  bitrate: int, first_run: bool) -> None:
+def _run_session(server: Server, capture_device: str,
+                 encoder_device: str, bitrate: int,
+                 first_run: bool) -> None:
     """Run a single capture/encode session.
 
     Args:
@@ -103,8 +106,10 @@ def _run_session(server: Server, capture_device: str, encoder_device: str,
     heap.open()
 
     try:
-        logger.info("Allocating %d shared DMABUF buffers (%d bytes each)...",
-                     NUM_BUFFERS, format_info["buffer_size"])
+        logger.info(
+            "Allocating %d shared DMABUF buffers (%d bytes each)...",
+            NUM_BUFFERS, format_info["buffer_size"],
+        )
         dma_buffers: list[DmaBuffer] = []
         try:
             for i in range(NUM_BUFFERS):

@@ -4,8 +4,6 @@ import os
 import tarfile
 import tempfile
 
-import pytest
-
 from mykvm.http_handler import HttpHandler, _get_content_type
 
 

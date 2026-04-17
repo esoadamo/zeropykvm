@@ -1,9 +1,6 @@
 """Tests for EDID module."""
 
-import os
 from pathlib import Path
-
-import pytest
 
 from mykvm.edid import EdidPreset, SignalInfo, _load_edid_data
 

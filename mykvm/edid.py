@@ -48,7 +48,7 @@ def _load_edid_data(preset: EdidPreset) -> bytes:
         EdidPreset.P1080_30: "1080p30edid",
     }[preset]
     edid_path = _EDID_DIR / filename
-    with open(edid_path, "r") as f:
+    with open(edid_path, "r", encoding="ascii") as f:
         text = f.read()
     # Parse space/newline-separated hex bytes
     hex_bytes = text.split()
@@ -77,7 +77,10 @@ def set_edid(device: str, edid_data: bytes) -> None:
         edid_struct.pad = 0
         edid_struct.start_block = 0
         edid_struct.blocks = blocks
-        edid_struct.edid = edid_buffer
+        # Cast the array to POINTER(c_uint8) to match the struct field type
+        edid_struct.edid = ctypes.cast(
+            edid_buffer, ctypes.POINTER(ctypes.c_uint8)
+        )
 
         ioctl_raw(fd, v4l2.VIDIOC_S_EDID, ctypes.byref(edid_struct))
     finally:
@@ -93,17 +96,27 @@ def set_edid_with_retry(device: str, preset: EdidPreset, max_retries: int = 10) 
         max_retries: Maximum number of retries.
     """
     edid_data = _load_edid_data(preset)
+    last_error: OSError | None = None
 
     for retry in range(max_retries):
         try:
             set_edid(device, edid_data)
-            logger.info("EDID %s set successfully after %d retries", preset.value, retry)
+            logger.info(
+                "EDID %s set successfully after %d retries",
+                preset.value, retry,
+            )
             return
         except OSError as e:
-            logger.warning("EDID set failed: %s, retry %d/%d", e, retry + 1, max_retries)
+            last_error = e
+            logger.warning(
+                "EDID set failed: %s, retry %d/%d",
+                e, retry + 1, max_retries,
+            )
             time.sleep(2)
 
-    logger.error("Failed to set EDID after %d retries", max_retries)
+    msg = f"Failed to set EDID after {max_retries} retries"
+    logger.error(msg)
+    raise RuntimeError(msg) from last_error
 
 
 def _query_and_apply_dv_timings(fd: int, apply: bool) -> SignalInfo:

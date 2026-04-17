@@ -80,5 +80,5 @@ def get_local_ip() -> str | None:
 
 def fourcc_to_string(fourcc: int) -> str:
     """Convert V4L2 FourCC format code to string."""
-    return chr(fourcc & 0xFF) + chr((fourcc >> 8) & 0xFF) + \
-           chr((fourcc >> 16) & 0xFF) + chr((fourcc >> 24) & 0xFF)
+    return (chr(fourcc & 0xFF) + chr((fourcc >> 8) & 0xFF)
+            + chr((fourcc >> 16) & 0xFF) + chr((fourcc >> 24) & 0xFF))

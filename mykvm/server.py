@@ -51,24 +51,36 @@ class Server:
         """Broadcast binary data to all connected clients.
 
         Automatically removes clients that fail to receive data.
+        Copies client list under lock, then sends without holding
+        the lock to avoid blocking other operations.
 
         Args:
             data: Binary data to broadcast.
         """
         with self._lock:
-            failed_indices = []
-            for i, client in enumerate(self.clients):
-                try:
-                    client.send(data)
-                except Exception:
-                    failed_indices.append(i)
+            clients = list(self.clients)
 
-            # Remove failed clients in reverse order
-            for i in reversed(failed_indices):
-                self.clients.pop(i)
+        failed_clients = []
+        for client in clients:
+            try:
+                client.send(data)
+            except Exception:
+                failed_clients.append(client)
 
-            if failed_indices:
-                logger.info("Removed %d disconnected clients", len(failed_indices))
+        if failed_clients:
+            removed_count = 0
+            with self._lock:
+                for client in failed_clients:
+                    try:
+                        self.clients.remove(client)
+                        removed_count += 1
+                    except ValueError:
+                        pass
+
+            if removed_count:
+                logger.info(
+                    "Removed %d disconnected clients", removed_count
+                )
 
     def deinit(self) -> None:
         """Clean up resources."""

@@ -2,13 +2,9 @@
 
 import struct
 
-import pytest
-
 from mykvm.usb import (
     KEYBOARD_REPORT_DESC,
     MOUSE_REPORT_DESC,
-    MODIFIER_BIT_MAP,
-    SCANCODE_MAP,
     HidKeyboard,
     HidMouse,
     ModifierFlags,
@@ -291,7 +287,6 @@ class TestMouseReportFormat:
 
     def test_report_size(self):
         """Mouse report should be 6 bytes."""
-        mouse = HidMouse()
         # The internal report format: Buttons, X_L, X_H, Y_L, Y_H, Wheel
         report = struct.pack('<BHHB', 0, 0, 0, 0)
         assert len(report) == 6

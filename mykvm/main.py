@@ -81,8 +81,10 @@ def main():
     logger.info("Waiting for HDMI signal...")
     try:
         signal_info = wait_for_signal(config.device, 300)
-        logger.info("HDMI signal detected: %dx%d @ %dfps",
-                     signal_info.width, signal_info.height, signal_info.fps)
+        logger.info(
+            "HDMI signal detected: %dx%d @ %dfps",
+            signal_info.width, signal_info.height, signal_info.fps,
+        )
         display.update_hdmi_status(True)
     except (TimeoutError, OSError) as e:
         logger.error("No HDMI signal detected: %s", e)

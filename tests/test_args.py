@@ -79,7 +79,7 @@ class TestParse:
         cert_path, key_path = self._create_temp_files()
         try:
             config = parse(["--cert", cert_path, "--key", key_path,
-                             "--listen", "127.0.0.1"])
+                           "--listen", "127.0.0.1"])
             assert config.listen == "127.0.0.1"
         finally:
             os.unlink(cert_path)
@@ -90,7 +90,7 @@ class TestParse:
         cert_path, key_path = self._create_temp_files()
         try:
             config = parse(["--cert", cert_path, "--key", key_path,
-                             "--device", "/dev/video1"])
+                           "--device", "/dev/video1"])
             assert config.device == "/dev/video1"
         finally:
             os.unlink(cert_path)
@@ -101,7 +101,7 @@ class TestParse:
         cert_path, key_path = self._create_temp_files()
         try:
             config = parse(["--cert", cert_path, "--key", key_path,
-                             "--encoder", "/dev/video12"])
+                           "--encoder", "/dev/video12"])
             assert config.encoder == "/dev/video12"
         finally:
             os.unlink(cert_path)
@@ -112,7 +112,7 @@ class TestParse:
         cert_path, key_path = self._create_temp_files()
         try:
             config = parse(["--cert", cert_path, "--key", key_path,
-                             "--bitrate", "2000000"])
+                           "--bitrate", "2000000"])
             assert config.bitrate == 2_000_000
         finally:
             os.unlink(cert_path)

@@ -11,8 +11,7 @@ import logging
 import os
 import struct
 import time
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -40,7 +39,6 @@ UDC_STATE_MAP = {
 
 def _read_udc_state() -> str:
     """Read current UDC state from /sys/class/udc/<udc>/state."""
-    global _g_udc_name
     if not _g_udc_name:
         return "unknown"
 
@@ -63,34 +61,34 @@ KEYBOARD_REPORT_DESC = bytes([
     0x05, 0x01,  # Usage Page (Generic Desktop)
     0x09, 0x06,  # Usage (Keyboard)
     0xa1, 0x01,  # Collection (Application)
-    0x05, 0x07,  #   Usage Page (Key Codes)
-    0x19, 0xe0,  #   Usage Minimum (224 - Left Control)
-    0x29, 0xe7,  #   Usage Maximum (231 - Right GUI)
-    0x15, 0x00,  #   Logical Minimum (0)
-    0x25, 0x01,  #   Logical Maximum (1)
-    0x75, 0x01,  #   Report Size (1)
-    0x95, 0x08,  #   Report Count (8)
-    0x81, 0x02,  #   Input (Data, Variable, Absolute) - Modifier byte
-    0x95, 0x01,  #   Report Count (1)
-    0x75, 0x08,  #   Report Size (8)
-    0x81, 0x03,  #   Input (Constant) - Reserved byte
-    0x95, 0x05,  #   Report Count (5)
-    0x75, 0x01,  #   Report Size (1)
-    0x05, 0x08,  #   Usage Page (LEDs)
-    0x19, 0x01,  #   Usage Minimum (1)
-    0x29, 0x05,  #   Usage Maximum (5)
-    0x91, 0x02,  #   Output (Data, Variable, Absolute) - LED report
-    0x95, 0x01,  #   Report Count (1)
-    0x75, 0x03,  #   Report Size (3)
-    0x91, 0x03,  #   Output (Constant) - LED padding
-    0x95, 0x06,  #   Report Count (6)
-    0x75, 0x08,  #   Report Size (8)
-    0x15, 0x00,  #   Logical Minimum (0)
-    0x25, 0x65,  #   Logical Maximum (101)
-    0x05, 0x07,  #   Usage Page (Key Codes)
-    0x19, 0x00,  #   Usage Minimum (0)
-    0x29, 0x65,  #   Usage Maximum (101)
-    0x81, 0x00,  #   Input (Data, Array) - Key array (6 keys)
+    0x05, 0x07,  # Usage Page (Key Codes)
+    0x19, 0xe0,  # Usage Minimum (224 - Left Control)
+    0x29, 0xe7,  # Usage Maximum (231 - Right GUI)
+    0x15, 0x00,  # Logical Minimum (0)
+    0x25, 0x01,  # Logical Maximum (1)
+    0x75, 0x01,  # Report Size (1)
+    0x95, 0x08,  # Report Count (8)
+    0x81, 0x02,  # Input (Data, Variable, Absolute) - Modifier byte
+    0x95, 0x01,  # Report Count (1)
+    0x75, 0x08,  # Report Size (8)
+    0x81, 0x03,  # Input (Constant) - Reserved byte
+    0x95, 0x05,  # Report Count (5)
+    0x75, 0x01,  # Report Size (1)
+    0x05, 0x08,  # Usage Page (LEDs)
+    0x19, 0x01,  # Usage Minimum (1)
+    0x29, 0x05,  # Usage Maximum (5)
+    0x91, 0x02,  # Output (Data, Variable, Absolute) - LED report
+    0x95, 0x01,  # Report Count (1)
+    0x75, 0x03,  # Report Size (3)
+    0x91, 0x03,  # Output (Constant) - LED padding
+    0x95, 0x06,  # Report Count (6)
+    0x75, 0x08,  # Report Size (8)
+    0x15, 0x00,  # Logical Minimum (0)
+    0x25, 0x65,  # Logical Maximum (101)
+    0x05, 0x07,  # Usage Page (Key Codes)
+    0x19, 0x00,  # Usage Minimum (0)
+    0x29, 0x65,  # Usage Maximum (101)
+    0x81, 0x00,  # Input (Data, Array) - Key array (6 keys)
     0xc0,        # End Collection
 ])
 
@@ -100,34 +98,34 @@ MOUSE_REPORT_DESC = bytes([
     0x05, 0x01,  # Usage Page (Generic Desktop)
     0x09, 0x02,  # Usage (Mouse)
     0xa1, 0x01,  # Collection (Application)
-    0x09, 0x01,  #   Usage (Pointer)
-    0xa1, 0x00,  #   Collection (Physical)
-    0x05, 0x09,  #     Usage Page (Button)
-    0x19, 0x01,  #     Usage Minimum (Button 1)
-    0x29, 0x03,  #     Usage Maximum (Button 3)
-    0x15, 0x00,  #     Logical Minimum (0)
-    0x25, 0x01,  #     Logical Maximum (1)
-    0x95, 0x03,  #     Report Count (3)
-    0x75, 0x01,  #     Report Size (1)
-    0x81, 0x02,  #     Input (Data, Variable, Absolute) - 3 buttons
-    0x95, 0x01,  #     Report Count (1)
-    0x75, 0x05,  #     Report Size (5)
-    0x81, 0x03,  #     Input (Constant) - 5 bit padding
-    0x05, 0x01,  #     Usage Page (Generic Desktop)
-    0x09, 0x30,  #     Usage (X)
-    0x09, 0x31,  #     Usage (Y)
-    0x15, 0x00,  #     Logical Minimum (0)
+    0x09, 0x01,  # Usage (Pointer)
+    0xa1, 0x00,  # Collection (Physical)
+    0x05, 0x09,  # Usage Page (Button)
+    0x19, 0x01,  # Usage Minimum (Button 1)
+    0x29, 0x03,  # Usage Maximum (Button 3)
+    0x15, 0x00,  # Logical Minimum (0)
+    0x25, 0x01,  # Logical Maximum (1)
+    0x95, 0x03,  # Report Count (3)
+    0x75, 0x01,  # Report Size (1)
+    0x81, 0x02,  # Input (Data, Variable, Absolute) - 3 buttons
+    0x95, 0x01,  # Report Count (1)
+    0x75, 0x05,  # Report Size (5)
+    0x81, 0x03,  # Input (Constant) - 5 bit padding
+    0x05, 0x01,  # Usage Page (Generic Desktop)
+    0x09, 0x30,  # Usage (X)
+    0x09, 0x31,  # Usage (Y)
+    0x15, 0x00,  # Logical Minimum (0)
     0x26, 0xff, 0x7f,  # Logical Maximum (32767)
-    0x75, 0x10,  #     Report Size (16)
-    0x95, 0x02,  #     Report Count (2)
-    0x81, 0x02,  #     Input (Data, Variable, Absolute) - X and Y absolute
-    0x09, 0x38,  #     Usage (Wheel)
-    0x15, 0x81,  #     Logical Minimum (-127)
-    0x25, 0x7f,  #     Logical Maximum (127)
-    0x75, 0x08,  #     Report Size (8)
-    0x95, 0x01,  #     Report Count (1)
-    0x81, 0x06,  #     Input (Data, Variable, Relative) - Wheel
-    0xc0,        #   End Collection
+    0x75, 0x10,  # Report Size (16)
+    0x95, 0x02,  # Report Count (2)
+    0x81, 0x02,  # Input (Data, Variable, Absolute) - X and Y
+    0x09, 0x38,  # Usage (Wheel)
+    0x15, 0x81,  # Logical Minimum (-127)
+    0x25, 0x7f,  # Logical Maximum (127)
+    0x75, 0x08,  # Report Size (8)
+    0x95, 0x01,  # Report Count (1)
+    0x81, 0x06,  # Input (Data, Variable, Relative) - Wheel
+    0xc0,        # End Collection
     0xc0,        # End Collection
 ])
 
@@ -362,12 +360,18 @@ class HidDevice:
 
 
 class HidKeyboard:
-    """HID keyboard state and device management."""
+    """HID keyboard state and device management.
+
+    Modifier keys are tracked individually by key code (left/right)
+    to avoid conflicts between aggregate browser flags and specific
+    modifier key events.
+    """
 
     def __init__(self):
         self.device = HidDevice(HIDG_KEYBOARD)
         self.pressed_keys = [0] * 6
         self.modifier_state = 0
+        self._pressed_modifiers: set[int] = set()
 
     def open(self) -> None:
         """Open the keyboard HID device."""
@@ -377,27 +381,27 @@ class HidKeyboard:
         """Clean up resources."""
         self.device.deinit()
 
+    def _rebuild_modifier_state(self) -> None:
+        """Rebuild modifier_state from tracked pressed modifier keys."""
+        self.modifier_state = 0
+        for bit in self._pressed_modifiers:
+            self.modifier_state |= bit
+
     def key_down(self, code: str, modifiers: ModifierFlags) -> None:
         """Handle key down event.
 
         Args:
             code: KeyboardEvent.code value.
-            modifiers: Current modifier key states.
+            modifiers: Current modifier key states from the browser.
         """
-        self.modifier_state = 0
-        if modifiers.ctrl:
-            self.modifier_state |= Modifiers.LEFT_CTRL
-        if modifiers.shift:
-            self.modifier_state |= Modifiers.LEFT_SHIFT
-        if modifiers.alt:
-            self.modifier_state |= Modifiers.LEFT_ALT
-        if modifiers.meta:
-            self.modifier_state |= Modifiers.LEFT_GUI
-
         mod_bit = _get_modifier_bit(code)
         if mod_bit is not None:
-            self.modifier_state |= mod_bit
+            # Track the specific modifier key press
+            self._pressed_modifiers.add(mod_bit)
+            self._rebuild_modifier_state()
         else:
+            # For non-modifier keys, use browser flags for modifier state
+            self._sync_modifiers_from_flags(modifiers)
             scancode = _get_scancode(code)
             if scancode is not None:
                 for i in range(6):
@@ -414,7 +418,30 @@ class HidKeyboard:
 
         Args:
             code: KeyboardEvent.code value.
-            modifiers: Current modifier key states.
+            modifiers: Current modifier key states from the browser.
+        """
+        mod_bit = _get_modifier_bit(code)
+        if mod_bit is not None:
+            # Remove the specific modifier key
+            self._pressed_modifiers.discard(mod_bit)
+            self._rebuild_modifier_state()
+        else:
+            # For non-modifier keys, use browser flags for modifier state
+            self._sync_modifiers_from_flags(modifiers)
+            scancode = _get_scancode(code)
+            if scancode is not None:
+                for i in range(6):
+                    if self.pressed_keys[i] == scancode:
+                        self.pressed_keys[i] = 0
+                        break
+
+        self._send_report()
+
+    def _sync_modifiers_from_flags(self, modifiers: ModifierFlags) -> None:
+        """Sync modifier state from browser aggregate flags.
+
+        Only used for non-modifier key events where we don't have
+        specific left/right key information.
         """
         self.modifier_state = 0
         if modifiers.ctrl:
@@ -425,19 +452,9 @@ class HidKeyboard:
             self.modifier_state |= Modifiers.LEFT_ALT
         if modifiers.meta:
             self.modifier_state |= Modifiers.LEFT_GUI
-
-        mod_bit = _get_modifier_bit(code)
-        if mod_bit is not None:
-            self.modifier_state &= ~mod_bit
-        else:
-            scancode = _get_scancode(code)
-            if scancode is not None:
-                for i in range(6):
-                    if self.pressed_keys[i] == scancode:
-                        self.pressed_keys[i] = 0
-                        break
-
-        self._send_report()
+        # Merge with explicitly tracked modifier keys
+        for bit in self._pressed_modifiers:
+            self.modifier_state |= bit
 
     def _send_report(self) -> None:
         """Send the current keyboard state as a HID report."""
@@ -457,6 +474,7 @@ class HidKeyboard:
         """Release all keys."""
         self.pressed_keys = [0] * 6
         self.modifier_state = 0
+        self._pressed_modifiers.clear()
         self._send_report()
 
 

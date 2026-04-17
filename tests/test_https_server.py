@@ -1,8 +1,5 @@
 """Tests for HTTPS server module."""
 
-import hashlib
-import base64
-
 from mykvm.https_server import (
     _is_websocket_upgrade,
     _extract_ws_key,

@@ -2,9 +2,6 @@
 
 import json
 
-import pytest
-
-from mykvm.usb import Modifiers
 from mykvm.ws_handler import handle_message
 
 

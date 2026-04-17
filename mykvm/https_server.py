@@ -7,7 +7,6 @@ connections for real-time video streaming and HID control.
 import hashlib
 import base64
 import logging
-import os
 import ssl
 import socket
 import struct
@@ -108,6 +107,13 @@ def _parse_request_path(request: bytes) -> str:
 # ============================================================================
 
 
+# Maximum allowed WebSocket payload size (1 MB)
+MAX_WS_PAYLOAD_SIZE = 1 * 1024 * 1024
+
+# Maximum allowed HTTP header size (8 KB)
+MAX_HTTP_HEADER_SIZE = 8192
+
+
 def _read_ws_frame(conn: ssl.SSLSocket) -> tuple[int, bytes] | None:
     """Read a WebSocket frame from the connection.
 
@@ -137,6 +143,13 @@ def _read_ws_frame(conn: ssl.SSLSocket) -> tuple[int, bytes] | None:
                 return None
             payload_len = struct.unpack(">Q", ext)[0]
 
+        # Reject oversized payloads to prevent memory exhaustion
+        if payload_len > MAX_WS_PAYLOAD_SIZE:
+            logger.warning(
+                "WebSocket payload too large: %d bytes", payload_len
+            )
+            return None
+
         mask_key = b""
         if masked:
             mask_key = _recv_exact(conn, 4)
@@ -148,7 +161,9 @@ def _read_ws_frame(conn: ssl.SSLSocket) -> tuple[int, bytes] | None:
             return None
 
         if masked:
-            payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+            payload = bytes(
+                b ^ mask_key[i % 4] for i, b in enumerate(payload)
+            )
 
         return opcode, payload
     except (ConnectionError, OSError):
@@ -274,8 +289,35 @@ def _handle_websocket(conn: ssl.SSLSocket, server: Server) -> None:
         server.remove_client(ws_conn)
 
 
+def _read_http_headers(conn: ssl.SSLSocket) -> bytes | None:
+    """Read complete HTTP headers from the connection.
+
+    Reads until the header terminator (\\r\\n\\r\\n) is found or
+    the maximum header size is exceeded.
+
+    Args:
+        conn: SSL socket connection.
+
+    Returns:
+        Complete HTTP request bytes or None if connection closed.
+    """
+    data = bytearray()
+    while len(data) < MAX_HTTP_HEADER_SIZE:
+        try:
+            chunk = conn.recv(4096)
+            if not chunk:
+                return None
+            data.extend(chunk)
+            if b"\r\n\r\n" in data:
+                return bytes(data)
+        except (ConnectionError, OSError):
+            return None
+    # Header too large
+    return bytes(data) if data else None
+
+
 def _handle_connection(conn: ssl.SSLSocket, addr, server: Server,
-                        http_handler: HttpHandler) -> None:
+                       http_handler: HttpHandler) -> None:
     """Handle a single HTTPS connection.
 
     Args:
@@ -288,8 +330,8 @@ def _handle_connection(conn: ssl.SSLSocket, addr, server: Server,
         # Set TCP_NODELAY
         conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-        # Read initial request
-        request = conn.recv(8192)
+        # Read complete HTTP headers
+        request = _read_http_headers(conn)
         if not request:
             return
 
@@ -311,8 +353,12 @@ def _handle_connection(conn: ssl.SSLSocket, addr, server: Server,
         else:
             # Handle regular HTTP request
             request_path = _parse_request_path(request)
-            status, content_type, body = http_handler.handle_request(request_path)
-            response = http_handler.format_response(status, content_type, body)
+            status, content_type, body = (
+                http_handler.handle_request(request_path)
+            )
+            response = http_handler.format_response(
+                status, content_type, body
+            )
             conn.sendall(response)
 
     except Exception as e:

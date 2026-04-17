@@ -3,7 +3,6 @@
 Serves files from a tar archive (web/dist.tar) or a directory.
 """
 
-import io
 import logging
 import os
 import tarfile
