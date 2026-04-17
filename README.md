@@ -11,7 +11,7 @@ A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig]
 - **HTTPS + WebSocket**: Serves a web frontend over HTTPS with WebSocket for real-time video streaming and HID control
 - **E-Paper display**: Optional status display on Waveshare EPD 2in13 V4
 - **EDID management**: Sets custom EDID on the HDMI capture device for resolution control
-- **No external runtime dependencies**: Uses only Python standard library modules
+- **No external runtime dependencies**: Uses only the Python standard library plus the [websockets](https://websockets.readthedocs.io/) library for robust WebSocket protocol handling
 
 ## Architecture
 

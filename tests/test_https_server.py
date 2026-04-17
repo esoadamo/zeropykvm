@@ -1,138 +1,100 @@
-"""Tests for HTTPS server module."""
+"""Tests for HTTPS server module.
 
-from mykvm.https_server import (
-    _is_websocket_upgrade,
-    _extract_ws_key,
-    _make_ws_accept_key,
-    _parse_request_path,
-)
+WebSocket protocol handling (framing, handshake, masking, etc.) is
+delegated to the well-tested websockets library. These tests verify
+our routing and integration logic.
+"""
+
+from mykvm.https_server import _make_process_request
+from mykvm.http_handler import HttpHandler
 
 
-class TestIsWebSocketUpgrade:
-    """Test WebSocket upgrade detection."""
+class MockRequest:
+    """Mock HTTP request for testing process_request routing."""
 
-    def test_valid_upgrade(self):
-        request = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: example.com\r\n"
-            b"Upgrade: websocket\r\n"
-            b"Connection: Upgrade\r\n"
-            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-            b"Sec-WebSocket-Version: 13\r\n"
-            b"\r\n"
+    def __init__(self, path="/", headers=None):
+        self.path = path
+        self.headers = headers or {}
+
+
+class TestProcessRequest:
+    """Test process_request callback routing logic."""
+
+    def test_websocket_upgrade_returns_none(self):
+        """WebSocket upgrade requests should return None to proceed."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(
+            path="/",
+            headers={"Upgrade": "websocket"},
         )
-        assert _is_websocket_upgrade(request) is True
+        assert process_request(None, request) is None
 
-    def test_no_upgrade_header(self):
-        request = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: example.com\r\n"
-            b"Connection: Upgrade\r\n"
-            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-            b"\r\n"
+    def test_websocket_upgrade_case_insensitive(self):
+        """WebSocket upgrade detection should be case-insensitive."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(
+            path="/",
+            headers={"Upgrade": "WebSocket"},
         )
-        assert _is_websocket_upgrade(request) is False
+        assert process_request(None, request) is None
 
-    def test_no_connection_upgrade(self):
-        request = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: example.com\r\n"
-            b"Upgrade: websocket\r\n"
-            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-            b"\r\n"
+    def test_http_request_returns_response(self):
+        """Regular HTTP requests should return a Response."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(path="/index.html")
+        response = process_request(None, request)
+        assert response is not None
+        assert response.status_code == 404  # No files loaded
+        assert response.body == b"404 Not Found"
+
+    def test_http_root_returns_response(self):
+        """Root path should be handled."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(path="/")
+        response = process_request(None, request)
+        assert response is not None
+
+    def test_no_upgrade_header_serves_http(self):
+        """Requests without Upgrade header should be served as HTTP."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(
+            path="/",
+            headers={"Host": "example.com"},
         )
-        assert _is_websocket_upgrade(request) is False
+        response = process_request(None, request)
+        assert response is not None
 
-    def test_no_ws_key(self):
-        request = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: example.com\r\n"
-            b"Upgrade: websocket\r\n"
-            b"Connection: Upgrade\r\n"
-            b"\r\n"
+    def test_empty_upgrade_header_serves_http(self):
+        """Requests with empty Upgrade header should be served as HTTP."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(
+            path="/",
+            headers={"Upgrade": ""},
         )
-        assert _is_websocket_upgrade(request) is False
+        response = process_request(None, request)
+        assert response is not None
 
-    def test_regular_http(self):
-        request = (
-            b"GET /index.html HTTP/1.1\r\n"
-            b"Host: example.com\r\n"
-            b"\r\n"
+    def test_non_websocket_upgrade_serves_http(self):
+        """Non-WebSocket Upgrade requests should be served as HTTP."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(
+            path="/",
+            headers={"Upgrade": "h2c"},
         )
-        assert _is_websocket_upgrade(request) is False
+        response = process_request(None, request)
+        assert response is not None
 
-    def test_case_insensitive_headers(self):
-        request = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: example.com\r\n"
-            b"upgrade: WebSocket\r\n"
-            b"connection: Upgrade\r\n"
-            b"sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-            b"\r\n"
-        )
-        assert _is_websocket_upgrade(request) is True
-
-    def test_empty_request(self):
-        assert _is_websocket_upgrade(b"") is False
-
-
-class TestExtractWsKey:
-    """Test WebSocket key extraction."""
-
-    def test_extract_key(self):
-        request = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: example.com\r\n"
-            b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-            b"\r\n"
-        )
-        assert _extract_ws_key(request) == "dGhlIHNhbXBsZSBub25jZQ=="
-
-    def test_no_key(self):
-        request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
-        assert _extract_ws_key(request) == ""
-
-
-class TestMakeWsAcceptKey:
-    """Test WebSocket accept key generation."""
-
-    def test_rfc_example(self):
-        """Test with the example from RFC 6455."""
-        key = "dGhlIHNhbXBsZSBub25jZQ=="
-        expected = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-        assert _make_ws_accept_key(key) == expected
-
-    def test_deterministic(self):
-        """Test that the same key always produces the same result."""
-        key = "x3JJHMbDL1EzLkh9GBhXDw=="
-        result1 = _make_ws_accept_key(key)
-        result2 = _make_ws_accept_key(key)
-        assert result1 == result2
-
-    def test_different_keys(self):
-        """Test that different keys produce different results."""
-        result1 = _make_ws_accept_key("key1")
-        result2 = _make_ws_accept_key("key2")
-        assert result1 != result2
-
-
-class TestParseRequestPath:
-    """Test HTTP request path parsing."""
-
-    def test_root(self):
-        request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
-        assert _parse_request_path(request) == "/"
-
-    def test_index(self):
-        request = b"GET /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n"
-        assert _parse_request_path(request) == "/index.html"
-
-    def test_nested_path(self):
-        request = b"GET /assets/style.css HTTP/1.1\r\nHost: example.com\r\n\r\n"
-        assert _parse_request_path(request) == "/assets/style.css"
-
-    def test_empty(self):
-        assert _parse_request_path(b"") == "/"
-
-    def test_malformed(self):
-        assert _parse_request_path(b"invalid") == "/"
+    def test_response_reason_phrase(self):
+        """Response should have correct reason phrase."""
+        handler = HttpHandler()
+        process_request = _make_process_request(handler)
+        request = MockRequest(path="/nonexistent")
+        response = process_request(None, request)
+        assert response.reason_phrase == "Not Found"
