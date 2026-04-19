@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mykvm"
+version = "0.1.0"
+description = "A KVM-over-IP solution running on Raspberry Pi Zero 2 W, rewritten in Python"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+    "websockets>=14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "flake8>=7.0",
+]
+epaper = [
+    "spidev>=3.5",
+    "RPi.GPIO>=0.7",
+]
+
+[project.scripts]
+mykvm = "mykvm.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
