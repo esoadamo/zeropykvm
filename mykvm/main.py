@@ -68,7 +68,7 @@ def main():
     # Set EDID
     edid_ok = True
     try:
-        set_edid_with_retry(config.device, EdidPreset.P1080_25)
+        set_edid_with_retry(config.subdev, EdidPreset.P1080_25)
     except Exception as e:
         logger.warning("Failed to set EDID: %s", e)
         edid_ok = False
@@ -77,7 +77,7 @@ def main():
     # Wait for HDMI signal
     logger.info("Waiting for HDMI signal...")
     try:
-        signal_info = wait_for_signal(config.device, 300)
+        signal_info = wait_for_signal(config.device, config.subdev, 300)
         logger.info(
             "HDMI signal detected: %dx%d @ %dfps",
             signal_info.width, signal_info.height, signal_info.fps,
@@ -136,7 +136,8 @@ def main():
     # Start V4L2 video thread
     v4l2_thread = threading.Thread(
         target=run_video,
-        args=(server, config.device, config.encoder, config.bitrate),
+        args=(server, config.device, config.encoder, config.bitrate,
+              config.subdev, signal_info),
         daemon=True,
     )
     v4l2_thread.start()

@@ -21,6 +21,7 @@ def v4l2_fourcc(a: str, b: str, c: str, d: str) -> int:
 V4L2_PIX_FMT_YUYV = v4l2_fourcc('Y', 'U', 'Y', 'V')
 V4L2_PIX_FMT_UYVY = v4l2_fourcc('U', 'Y', 'V', 'Y')
 V4L2_PIX_FMT_RGB24 = v4l2_fourcc('R', 'G', 'B', '3')
+V4L2_PIX_FMT_BGR24 = v4l2_fourcc('B', 'G', 'R', '3')
 V4L2_PIX_FMT_H264 = v4l2_fourcc('H', '2', '6', '4')
 
 # ============================================================================
@@ -178,8 +179,10 @@ class v4l2_format_fmt(ctypes.Union):
 class v4l2_format(ctypes.Structure):
     _fields_ = [
         ('type', ctypes.c_uint32),
+        # On 64-bit systems the union has 8-byte alignment (v4l2_window contains
+        # pointer fields), so 4 bytes of implicit padding follow 'type'.
+        ('_pad', ctypes.c_uint32),
         ('fmt', v4l2_format_fmt),
-        ('_padding', ctypes.c_uint32),  # Ensure correct size
     ]
 
 
@@ -260,6 +263,8 @@ class v4l2_control(ctypes.Structure):
 
 
 class v4l2_bt_timings(ctypes.Structure):
+    # The kernel defines this with __attribute__((packed))
+    _pack_ = 1
     _fields_ = [
         ('width', ctypes.c_uint32),
         ('height', ctypes.c_uint32),
@@ -295,7 +300,6 @@ class v4l2_dv_timings_u(ctypes.Union):
 class v4l2_dv_timings(ctypes.Structure):
     _fields_ = [
         ('type', ctypes.c_uint32),
-        ('_pad', ctypes.c_uint32),
         ('u', v4l2_dv_timings_u),
     ]
 
@@ -342,6 +346,8 @@ VIDIOC_STREAMON = _IOW(_V, 18, ctypes.sizeof(ctypes.c_int))
 VIDIOC_STREAMOFF = _IOW(_V, 19, ctypes.sizeof(ctypes.c_int))
 VIDIOC_S_CTRL = _IOWR(_V, 28, ctypes.sizeof(v4l2_control))
 VIDIOC_QUERY_DV_TIMINGS = _IOR(_V, 99, ctypes.sizeof(v4l2_dv_timings))
+VIDIOC_SUBDEV_QUERY_DV_TIMINGS = _IOR(_V, 102, ctypes.sizeof(v4l2_dv_timings))
+VIDIOC_SUBDEV_G_DV_TIMINGS = _IOWR(_V, 88, ctypes.sizeof(v4l2_dv_timings))
 VIDIOC_S_DV_TIMINGS = _IOWR(_V, 87, ctypes.sizeof(v4l2_dv_timings))
 VIDIOC_S_EDID = _IOWR(_V, 41, ctypes.sizeof(v4l2_edid))
 

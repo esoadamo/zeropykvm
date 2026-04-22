@@ -12,7 +12,7 @@ import time
 from . import v4l2
 from .capture import Capture
 from .dma import DmaBuffer, DmaHeap
-from .edid import wait_for_signal
+from .edid import SignalInfo, wait_for_signal
 from .encode import Encoder, EncoderConfig
 from .server import Server
 from .utils import fourcc_to_string, ioctl_raw
@@ -22,14 +22,15 @@ logger = logging.getLogger(__name__)
 NUM_BUFFERS = 6
 
 
-def _probe_format(device: str) -> dict:
-    """Probe the capture device for current format.
+def _probe_format(device: str, subdev: str) -> dict:
+    """Probe the capture device for current format after applying fresh DV timings.
 
     Args:
         device: Path to the V4L2 capture device.
+        subdev: Path to the V4L2 subdevice to query fresh DV timings from.
 
     Returns:
-        Dict with width, height, buffer_size, bytesperline.
+        Dict with width, height, buffer_size, bytesperline, pixelformat, dv_timings.
 
     Raises:
         OSError: If probing fails.
@@ -43,25 +44,31 @@ def _probe_format(device: str) -> dict:
         if not (cap.capabilities & v4l2.V4L2_CAP_VIDEO_CAPTURE):
             raise RuntimeError("Device does not support capture")
 
-        # Get current format
+        # Re-query fresh DV timings from subdev so we always apply current signal info.
+        # The signal may have changed resolution since initial detection.
+        dv_timings = v4l2.v4l2_dv_timings()
+        ctypes.memset(ctypes.byref(dv_timings), 0, ctypes.sizeof(dv_timings))
+        fd_sub = os.open(subdev, os.O_RDONLY)
+        try:
+            ioctl_raw(fd_sub, v4l2.VIDIOC_SUBDEV_G_DV_TIMINGS, ctypes.byref(dv_timings))
+        finally:
+            os.close(fd_sub)
+        ioctl_raw(fd, v4l2.VIDIOC_S_DV_TIMINGS, ctypes.byref(dv_timings))
+
+        # Read the format the driver has set — do NOT force a specific pixelformat
+        # so the tc358743 CSI-2 bus format is not disrupted.
         fmt = v4l2.v4l2_format()
         ctypes.memset(ctypes.byref(fmt), 0, ctypes.sizeof(fmt))
         fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
-        ioctl_raw(fd, v4l2.VIDIOC_G_FMT, ctypes.byref(fmt))
-
-        # Set UYVY format
-        fmt.fmt.pix.pixelformat = v4l2.V4L2_PIX_FMT_UYVY
-        ioctl_raw(fd, v4l2.VIDIOC_S_FMT, ctypes.byref(fmt))
-
-        # Read back
         ioctl_raw(fd, v4l2.VIDIOC_G_FMT, ctypes.byref(fmt))
 
         width = fmt.fmt.pix.width
         height = fmt.fmt.pix.height
         buffer_size = fmt.fmt.pix.sizeimage
         bytesperline = fmt.fmt.pix.bytesperline
+        pixelformat = fmt.fmt.pix.pixelformat
 
-        fmt_str = fourcc_to_string(fmt.fmt.pix.pixelformat)
+        fmt_str = fourcc_to_string(pixelformat)
         logger.info(
             "Probe: Format %s %dx%d, sizeimage=%d, bytesperline=%d",
             fmt_str, width, height, buffer_size, bytesperline,
@@ -72,6 +79,8 @@ def _probe_format(device: str) -> dict:
             "height": height,
             "buffer_size": buffer_size,
             "bytesperline": bytesperline,
+            "pixelformat": pixelformat,
+            "dv_timings": dv_timings,
         }
     finally:
         os.close(fd)
@@ -79,7 +88,8 @@ def _probe_format(device: str) -> dict:
 
 def _run_session(server: Server, capture_device: str,
                  encoder_device: str, bitrate: int,
-                 first_run: bool) -> None:
+                 first_run: bool, signal_info: SignalInfo,
+                 subdev: str) -> None:
     """Run a single capture/encode session.
 
     Args:
@@ -88,6 +98,8 @@ def _run_session(server: Server, capture_device: str,
         encoder_device: Path to encoder device.
         bitrate: Encoder bitrate.
         first_run: Whether this is the first session.
+        signal_info: HDMI signal dimensions from DV timings.
+        subdev: Path to V4L2 subdevice for fresh DV timings queries.
 
     Raises:
         Various exceptions on failure.
@@ -96,9 +108,17 @@ def _run_session(server: Server, capture_device: str,
     logger.info("Capture device: %s", capture_device)
     logger.info("Encoder device: %s, bitrate: %d", encoder_device, bitrate)
 
-    format_info = _probe_format(capture_device)
+    format_info = _probe_format(capture_device, subdev)
     logger.info("Capture format: %dx%d, buffer size: %d bytes",
                 format_info["width"], format_info["height"], format_info["buffer_size"])
+
+    # Build a fresh SignalInfo with current DV timings from the probe step
+    fresh_signal = SignalInfo(
+        width=format_info["width"],
+        height=format_info["height"],
+        fps=signal_info.fps,
+        dv_timings=format_info["dv_timings"],
+    )
 
     # Open DMA Heap
     logger.info("Opening DMA Heap...")
@@ -128,7 +148,7 @@ def _run_session(server: Server, capture_device: str,
             enc.init(encoder_device, EncoderConfig(
                 width=format_info["width"],
                 height=format_info["height"],
-                input_format=v4l2.V4L2_PIX_FMT_UYVY,
+                input_format=format_info["pixelformat"],
                 output_format=v4l2.V4L2_PIX_FMT_H264,
                 bitrate=bitrate,
                 bytesperline=format_info["bytesperline"],
@@ -139,7 +159,7 @@ def _run_session(server: Server, capture_device: str,
                 # Initialize capture
                 logger.info("Initializing V4L2 capture with shared DMABUF...")
                 cap = Capture()
-                cap.init(capture_device, v4l2.V4L2_PIX_FMT_UYVY, dma_buffers)
+                cap.init(capture_device, dma_buffers, fresh_signal)
 
                 try:
                     logger.info("Zero-copy pipeline ready, starting capture loop...")
@@ -198,7 +218,7 @@ def _run_session(server: Server, capture_device: str,
 
 
 def run(server: Server, capture_device: str, encoder_device: str,
-        bitrate: int) -> None:
+        bitrate: int, subdev: str, initial_signal: SignalInfo) -> None:
     """Run the video pipeline with automatic recovery.
 
     This function runs in a loop, recovering from errors by waiting for
@@ -209,22 +229,25 @@ def run(server: Server, capture_device: str, encoder_device: str,
         capture_device: Path to capture device.
         encoder_device: Path to encoder device.
         bitrate: Encoder bitrate.
+        subdev: Path to V4L2 subdevice.
+        initial_signal: Signal info from initial HDMI detection.
     """
     first_run = True
+    current_signal = initial_signal
 
     while True:
         if not first_run:
             logger.info("Attempting to recover connection...")
             try:
-                sig = wait_for_signal(capture_device, 300)
-                logger.info("Signal recovered: %dx%d", sig.width, sig.height)
+                current_signal = wait_for_signal(capture_device, subdev, 300)
+                logger.info("Signal recovered: %dx%d", current_signal.width, current_signal.height)
             except (TimeoutError, OSError) as e:
                 logger.error("Recovery failed (signal wait): %s", e)
                 time.sleep(2)
                 continue
 
         try:
-            _run_session(server, capture_device, encoder_device, bitrate, first_run)
+            _run_session(server, capture_device, encoder_device, bitrate, first_run, current_signal, subdev)
         except Exception as e:
             logger.error("Session error: %s", e)
             if first_run:

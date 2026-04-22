@@ -108,7 +108,8 @@ class Encoder:
                 raise RuntimeError("Device does not support streaming")
 
             # Calculate frame size
-            if config.input_format == v4l2.V4L2_PIX_FMT_RGB24:
+            _3bpp_fmts = {v4l2.V4L2_PIX_FMT_RGB24, v4l2.V4L2_PIX_FMT_BGR24}
+            if config.input_format in _3bpp_fmts:
                 bpp = 3
             else:
                 bpp = 2

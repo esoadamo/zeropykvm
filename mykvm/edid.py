@@ -8,7 +8,7 @@ import ctypes
 import logging
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -34,6 +34,7 @@ class SignalInfo:
     width: int
     height: int
     fps: int
+    dv_timings: v4l2.v4l2_dv_timings = field(default_factory=v4l2.v4l2_dv_timings)
 
 
 def _load_edid_data(preset: EdidPreset) -> bytes:
@@ -55,17 +56,17 @@ def _load_edid_data(preset: EdidPreset) -> bytes:
     return bytes(int(b, 16) for b in hex_bytes)
 
 
-def set_edid(device: str, edid_data: bytes) -> None:
-    """Set EDID data on the capture device.
+def set_edid(subdev: str, edid_data: bytes) -> None:
+    """Set EDID data on the TC358743 subdevice.
 
     Args:
-        device: Path to the V4L2 capture device.
+        subdev: Path to the V4L2 subdevice (e.g. /dev/v4l-subdev0).
         edid_data: Raw EDID data bytes.
 
     Raises:
         OSError: If setting EDID fails.
     """
-    fd = os.open(device, os.O_RDWR)
+    fd = os.open(subdev, os.O_RDWR)
     try:
         # Create a writable buffer for the EDID data
         edid_buffer = (ctypes.c_uint8 * len(edid_data))(*edid_data)
@@ -87,11 +88,11 @@ def set_edid(device: str, edid_data: bytes) -> None:
         os.close(fd)
 
 
-def set_edid_with_retry(device: str, preset: EdidPreset, max_retries: int = 10) -> None:
+def set_edid_with_retry(subdev: str, preset: EdidPreset, max_retries: int = 10) -> None:
     """Set EDID with retry logic.
 
     Args:
-        device: Path to the V4L2 capture device.
+        subdev: Path to the V4L2 subdevice (e.g. /dev/v4l-subdev0).
         preset: EDID preset to use.
         max_retries: Maximum number of retries.
     """
@@ -100,7 +101,7 @@ def set_edid_with_retry(device: str, preset: EdidPreset, max_retries: int = 10) 
 
     for retry in range(max_retries):
         try:
-            set_edid(device, edid_data)
+            set_edid(subdev, edid_data)
             logger.info(
                 "EDID %s set successfully after %d retries",
                 preset.value, retry,
@@ -108,6 +109,11 @@ def set_edid_with_retry(device: str, preset: EdidPreset, max_retries: int = 10) 
             return
         except OSError as e:
             last_error = e
+            if e.errno == 25:  # ENOTTY: subdev is read-only, no point retrying
+                logger.warning(
+                    "EDID set not supported on this subdevice (read-only): %s", e
+                )
+                break
             logger.warning(
                 "EDID set failed: %s, retry %d/%d",
                 e, retry + 1, max_retries,
@@ -119,12 +125,13 @@ def set_edid_with_retry(device: str, preset: EdidPreset, max_retries: int = 10) 
     raise RuntimeError(msg) from last_error
 
 
-def _query_and_apply_dv_timings(fd: int, apply: bool) -> SignalInfo:
-    """Query DV timings and optionally apply them to the device.
+def _query_and_apply_dv_timings(fd_subdev: int, fd_video: int, apply: bool) -> SignalInfo:
+    """Query DV timings from subdevice and optionally apply them to capture device.
 
     Args:
-        fd: File descriptor of the V4L2 device.
-        apply: Whether to apply the detected timings.
+        fd_subdev: File descriptor of the V4L2 subdevice (tc358743).
+        fd_video: File descriptor of the V4L2 capture device (unicam).
+        apply: Whether to apply the detected timings to the capture device.
 
     Returns:
         SignalInfo with detected resolution and frame rate.
@@ -135,14 +142,14 @@ def _query_and_apply_dv_timings(fd: int, apply: bool) -> SignalInfo:
     timings = v4l2.v4l2_dv_timings()
     ctypes.memset(ctypes.byref(timings), 0, ctypes.sizeof(timings))
 
-    ioctl_raw(fd, v4l2.VIDIOC_QUERY_DV_TIMINGS, ctypes.byref(timings))
+    ioctl_raw(fd_subdev, v4l2.VIDIOC_SUBDEV_G_DV_TIMINGS, ctypes.byref(timings))
 
     bt = timings.u.bt
     if bt.width == 0 or bt.height == 0:
         raise OSError("No signal detected (zero dimensions)")
 
     if apply:
-        ioctl_raw(fd, v4l2.VIDIOC_S_DV_TIMINGS, ctypes.byref(timings))
+        ioctl_raw(fd_video, v4l2.VIDIOC_S_DV_TIMINGS, ctypes.byref(timings))
 
     # Calculate FPS from pixel clock and total dimensions
     tot_height = (bt.height + bt.vfrontporch + bt.vsync + bt.vbackporch
@@ -154,14 +161,15 @@ def _query_and_apply_dv_timings(fd: int, apply: bool) -> SignalInfo:
     else:
         fps = 0
 
-    return SignalInfo(width=bt.width, height=bt.height, fps=int(fps))
+    return SignalInfo(width=bt.width, height=bt.height, fps=int(fps), dv_timings=timings)
 
 
-def query_signal(device: str) -> SignalInfo:
+def query_signal(device: str, subdev: str) -> SignalInfo:
     """Check if HDMI signal is present by querying DV timings.
 
     Args:
         device: Path to the V4L2 capture device.
+        subdev: Path to the V4L2 subdevice (tc358743).
 
     Returns:
         SignalInfo with current signal parameters.
@@ -169,18 +177,21 @@ def query_signal(device: str) -> SignalInfo:
     Raises:
         OSError: If no signal is detected.
     """
-    fd = os.open(device, os.O_RDWR)
+    fd_video = os.open(device, os.O_RDWR)
+    fd_subdev = os.open(subdev, os.O_RDWR)
     try:
-        return _query_and_apply_dv_timings(fd, apply=False)
+        return _query_and_apply_dv_timings(fd_subdev, fd_video, apply=False)
     finally:
-        os.close(fd)
+        os.close(fd_video)
+        os.close(fd_subdev)
 
 
-def wait_for_signal(device: str, timeout_seconds: int = 300) -> SignalInfo:
+def wait_for_signal(device: str, subdev: str, timeout_seconds: int = 300) -> SignalInfo:
     """Wait for HDMI signal with retry, then apply DV timings.
 
     Args:
         device: Path to the V4L2 capture device.
+        subdev: Path to the V4L2 subdevice (tc358743).
         timeout_seconds: Maximum time to wait in seconds.
 
     Returns:
@@ -189,7 +200,8 @@ def wait_for_signal(device: str, timeout_seconds: int = 300) -> SignalInfo:
     Raises:
         TimeoutError: If no signal detected within timeout.
     """
-    fd = os.open(device, os.O_RDWR)
+    fd_video = os.open(device, os.O_RDWR)
+    fd_subdev = os.open(subdev, os.O_RDWR)
     try:
         elapsed = 0
         retry_interval = 2
@@ -197,9 +209,9 @@ def wait_for_signal(device: str, timeout_seconds: int = 300) -> SignalInfo:
         while elapsed < timeout_seconds:
             try:
                 # First query without applying
-                _query_and_apply_dv_timings(fd, apply=False)
+                _query_and_apply_dv_timings(fd_subdev, fd_video, apply=False)
                 # If successful, query again and apply
-                info = _query_and_apply_dv_timings(fd, apply=True)
+                info = _query_and_apply_dv_timings(fd_subdev, fd_video, apply=True)
                 logger.info("DV timings applied")
                 time.sleep(0.1)
                 return info
@@ -210,4 +222,5 @@ def wait_for_signal(device: str, timeout_seconds: int = 300) -> SignalInfo:
 
         raise TimeoutError(f"No HDMI signal detected within {timeout_seconds}s")
     finally:
-        os.close(fd)
+        os.close(fd_video)
+        os.close(fd_subdev)

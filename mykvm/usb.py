@@ -729,6 +729,10 @@ def setup_gadget() -> None:
 
 def cleanup_gadget() -> None:
     """Cleanup/remove the USB gadget."""
+    if not os.path.exists(GADGET_PATH):
+        logger.info("USB HID Gadget not present, skipping cleanup")
+        return
+
     logger.info("Cleaning up USB HID Gadget...")
 
     # 1. Disable the gadget

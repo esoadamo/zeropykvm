@@ -15,6 +15,7 @@ class Config:
     port: int = 8443
     listen: str = "0.0.0.0"
     device: str = "/dev/video0"
+    subdev: str = "/dev/v4l-subdev0"
     encoder: str = "/dev/video11"
     bitrate: int = 1_000_000
     no_epaper: bool = False
@@ -78,6 +79,12 @@ Examples:
         help="Capture device path (default: /dev/video0)",
     )
     parser.add_argument(
+        "-s", "--subdev",
+        default="/dev/v4l-subdev0",
+        metavar="<path>",
+        help="V4L2 subdevice path for EDID/DV timings (default: /dev/v4l-subdev0)",
+    )
+    parser.add_argument(
         "-e", "--encoder",
         default="/dev/video11",
         metavar="<path>",
@@ -113,6 +120,7 @@ Examples:
         port=parsed.port,
         listen=parsed.listen,
         device=parsed.device,
+        subdev=parsed.subdev,
         encoder=parsed.encoder,
         bitrate=parsed.bitrate,
         no_epaper=parsed.no_epaper,

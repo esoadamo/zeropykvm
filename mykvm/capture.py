@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from . import v4l2
 from .dma import DmaBuffer
+from .edid import SignalInfo
 from .utils import fourcc_to_string, ioctl_raw
 
 logger = logging.getLogger(__name__)
@@ -36,13 +37,14 @@ class Capture:
         self.dmabuf_fds: list[int] = []
         self.streaming: bool = False
 
-    def init(self, device: str, pixel_format: int, dmabuf_buffers: list[DmaBuffer]) -> None:
+    def init(self, device: str, dmabuf_buffers: list[DmaBuffer],
+             signal_info: SignalInfo) -> None:
         """Initialize capture device with external DMABUF buffers.
 
         Args:
             device: Path to the V4L2 capture device (e.g., /dev/video0).
-            pixel_format: V4L2 pixel format (e.g., V4L2_PIX_FMT_UYVY).
             dmabuf_buffers: List of DmaBuffer objects for zero-copy capture.
+            signal_info: HDMI signal info; DV timings are applied on the open fd.
 
         Raises:
             OSError: If device initialization fails.
@@ -61,18 +63,18 @@ class Capture:
             if not (cap.capabilities & v4l2.V4L2_CAP_STREAMING):
                 raise RuntimeError("Device does not support streaming")
 
-            # Get current format to learn resolution
+            # Apply DV timings on this fd so the unicam pipeline produces frames.
+            # This must be done on the same fd that will be used for capture.
+            dv_timings = signal_info.dv_timings
+            ioctl_raw(self.fd, v4l2.VIDIOC_S_DV_TIMINGS, ctypes.byref(dv_timings))
+            logger.info("DV timings applied to capture fd")
+
+            # Get current format after DV timings — do NOT force a specific pixelformat
+            # so the tc358743 CSI-2 bus format is not disrupted.
             fmt = v4l2.v4l2_format()
             ctypes.memset(ctypes.byref(fmt), 0, ctypes.sizeof(fmt))
             fmt.type = v4l2.V4L2_BUF_TYPE_VIDEO_CAPTURE
             ioctl_raw(self.fd, v4l2.VIDIOC_G_FMT, ctypes.byref(fmt))
-
-            current_width = fmt.fmt.pix.width
-            current_height = fmt.fmt.pix.height
-
-            # Set desired format
-            fmt.fmt.pix.pixelformat = pixel_format
-            ioctl_raw(self.fd, v4l2.VIDIOC_S_FMT, ctypes.byref(fmt))
 
             self.width = fmt.fmt.pix.width
             self.height = fmt.fmt.pix.height
@@ -82,10 +84,6 @@ class Capture:
             fmt_str = fourcc_to_string(self.format)
             logger.info("Format %s %dx%d, buffer size %d",
                         fmt_str, self.width, self.height, self.buffer_size)
-
-            if current_width != self.width or current_height != self.height:
-                logger.info("Resolution changed from %dx%d to %dx%d",
-                            current_width, current_height, self.width, self.height)
 
             self.num_buffers = len(dmabuf_buffers)
 
@@ -110,6 +108,7 @@ class Capture:
                 buf.memory = v4l2.V4L2_MEMORY_DMABUF
                 buf.index = i
                 buf.m.fd = self.dmabuf_fds[i]
+                buf.length = self.buffer_size  # required for DMABUF QBUF
                 ioctl_raw(self.fd, v4l2.VIDIOC_QBUF, ctypes.byref(buf))
 
             logger.info("Queued %d buffers", self.num_buffers)
@@ -170,6 +169,7 @@ class Capture:
         buf.memory = v4l2.V4L2_MEMORY_DMABUF
         buf.index = index
         buf.m.fd = self.dmabuf_fds[index]
+        buf.length = self.buffer_size  # required for DMABUF QBUF
         ioctl_raw(self.fd, v4l2.VIDIOC_QBUF, ctypes.byref(buf))
 
     def close(self) -> None:
