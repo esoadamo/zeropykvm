@@ -5,8 +5,8 @@ delegated to the well-tested websockets library. These tests verify
 our routing and integration logic.
 """
 
-from mykvm.https_server import _make_process_request
-from mykvm.http_handler import HttpHandler
+from zeropykvm.https_server import _make_process_request
+from zeropykvm.http_handler import HttpHandler
 
 
 class MockRequest:

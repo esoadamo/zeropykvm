@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from mykvm.edid import EdidPreset, SignalInfo, _load_edid_data
+from zeropykvm.edid import EdidPreset, SignalInfo, _load_edid_data
 
 
 class TestEdidPresets:
@@ -45,7 +45,7 @@ class TestLoadEdidData:
         assert len(data) % 128 == 0
 
     def test_edid_files_exist(self):
-        edid_dir = Path(__file__).parent.parent / "mykvm" / "edid_data"
+        edid_dir = Path(__file__).parent.parent / "zeropykvm" / "edid_data"
         assert (edid_dir / "720p60edid").exists()
         assert (edid_dir / "1080p25edid").exists()
         assert (edid_dir / "1080p30edid").exists()

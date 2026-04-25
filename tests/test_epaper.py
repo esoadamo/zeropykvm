@@ -1,6 +1,6 @@
 """Tests for e-Paper display module."""
 
-from mykvm.epaper import Display
+from zeropykvm.epaper import Display
 
 
 class TestDisplay:

@@ -1,9 +1,10 @@
-"""MyKVM main entry point.
+"""zeropykvm main entry point.
 
 A KVM-over-IP solution running on Raspberry Pi Zero 2 W,
 featuring hardware H.264 encoding and a built-in web frontend.
 """
 
+import importlib.resources
 import logging
 import os
 import signal
@@ -46,7 +47,13 @@ def _handle_signal(signum, frame):
 
 
 def main():
-    """Main entry point for MyKVM."""
+    """Main entry point for zeropykvm."""
+    # Dispatch subcommands before full initialisation
+    if len(sys.argv) > 1 and sys.argv[1] == "gencrt":
+        sys.argv = [sys.argv[0] + " gencrt"] + sys.argv[2:]
+        from .gencert import main as _gencert_main
+        _gencert_main()
+        return
     global _g_display, _g_hid_keyboard, _g_hid_mouse
 
     # Configure logging
@@ -121,18 +128,26 @@ def main():
     server = Server(hid_keyboard, hid_mouse)
 
     # Set up HTTP handler
-    # Look for web dist in common locations
+    # Look for web dist: first try the installed package static dir, then dev paths
     web_dist_path = None
-    candidates = [
-        os.path.join(os.path.dirname(__file__), "..", "web", "dist.tar"),
-        os.path.join(os.path.dirname(__file__), "..", "web", "dist"),
-        "web/dist.tar",
-        "web/dist",
-    ]
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            web_dist_path = candidate
-            break
+    try:
+        pkg_static = importlib.resources.files("zeropykvm").joinpath("static/dist.tar")
+        with importlib.resources.as_file(pkg_static) as p:
+            if p.exists():
+                web_dist_path = str(p)
+    except (FileNotFoundError, TypeError):
+        pass
+    if web_dist_path is None:
+        dev_candidates = [
+            os.path.join(os.path.dirname(__file__), "..", "web", "dist.tar"),
+            os.path.join(os.path.dirname(__file__), "..", "web", "dist"),
+            "web/dist.tar",
+            "web/dist",
+        ]
+        for candidate in dev_candidates:
+            if os.path.exists(candidate):
+                web_dist_path = candidate
+                break
 
     http_handler = HttpHandler(web_dist_path)
 

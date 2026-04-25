@@ -1,6 +1,6 @@
 """Tests for V4L2 constants module."""
 
-from mykvm.v4l2 import (
+from zeropykvm.v4l2 import (
     V4L2_BUF_TYPE_VIDEO_CAPTURE,
     V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
     V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE,

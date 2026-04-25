@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from mykvm.args import Config, parse
+from zeropykvm.args import Config, parse
 
 
 class TestParse:

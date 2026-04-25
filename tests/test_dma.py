@@ -1,6 +1,6 @@
 """Tests for DMA module."""
 
-from mykvm.dma import DmaBuffer, DmaHeap
+from zeropykvm.dma import DmaBuffer, DmaHeap
 
 
 class TestDmaBuffer:

@@ -2,7 +2,7 @@
 
 import json
 
-from mykvm.ws_handler import handle_message
+from zeropykvm.ws_handler import handle_message
 
 
 class MockKeyboard:

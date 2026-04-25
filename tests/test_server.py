@@ -2,7 +2,7 @@
 
 import threading
 
-from mykvm.server import Server
+from zeropykvm.server import Server
 
 
 class MockKeyboard:

@@ -36,14 +36,14 @@ def parse(args: list[str] | None = None) -> Config:
         SystemExit: If required arguments are missing or --help is used.
     """
     parser = argparse.ArgumentParser(
-        prog="mykvm",
+        prog="zeropykvm",
         description="A KVM-over-IP solution running on Raspberry Pi Zero 2 W",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-  mykvm --cert cert.pem --key key.pem
-  mykvm --cert cert.pem --key key.pem --port 443
-  mykvm --cert cert.pem --key key.pem --listen 0.0.0.0
+  zeropykvm --cert cert.pem --key key.pem
+  zeropykvm --cert cert.pem --key key.pem --port 443
+  zeropykvm --cert cert.pem --key key.pem --listen 0.0.0.0
 """,
     )
 

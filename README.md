@@ -1,4 +1,4 @@
-# MyKVM-Python
+# zeropykvm
 
 A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig](https://github.com/darkyzhou/mykvm) to Python.
 
@@ -11,7 +11,6 @@ A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig]
 - **HTTPS + WebSocket**: Serves a web frontend over HTTPS with WebSocket for real-time video streaming and HID control
 - **E-Paper display**: Optional status display on Waveshare EPD 2in13 V4
 - **EDID management**: Sets custom EDID on the HDMI capture device for resolution control
-- **No external runtime dependencies**: Uses only the Python standard library plus the [websockets](https://websockets.readthedocs.io/) library for robust WebSocket protocol handling
 
 ## Demo hardware
 
@@ -24,7 +23,7 @@ A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig]
 The Python rewrite mirrors the original Zig project's architecture:
 
 | Module | Description |
-|--------|-------------|
+|--------|--------------|
 | `args.py` | CLI argument parsing (argparse) |
 | `utils.py` | Utility functions (ioctl wrapper, IP detection, FourCC) |
 | `v4l2.py` | V4L2 constants, ioctl numbers, and ctypes structures |
@@ -39,6 +38,7 @@ The Python rewrite mirrors the original Zig project's architecture:
 | `ws_handler.py` | WebSocket message handling (keyboard/mouse events) |
 | `https_server.py` | HTTPS/TLS server with WebSocket upgrade |
 | `video.py` | Zero-copy video pipeline orchestration |
+| `gencert.py` | Self-signed certificate generator (`zeropykvm gencrt` subcommand) |
 | `main.py` | Main entry point |
 
 ## Requirements
@@ -53,11 +53,22 @@ The Python rewrite mirrors the original Zig project's architecture:
 ## Installation
 
 ```bash
-# Using uv (recommended)
-uv sync
+# Install from PyPI using uv (recommended)
+uv tool install zeropykvm
 
 # Or with pip
-pip install -e .
+pip install zeropykvm
+
+# With e-Paper display support (on Raspberry Pi)
+pip install zeropykvm[epaper]
+```
+
+### Development setup
+
+```bash
+git clone https://github.com/YOUR_USERNAME/mykvm-python.git
+cd mykvm-python
+uv sync
 
 # With development tools
 uv sync --extra dev
@@ -69,15 +80,17 @@ uv sync --extra epaper
 ## Usage
 
 ```bash
-# Generate self-signed certificates for development
-openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
+# Generate a self-signed TLS certificate (no openssl required)
+zeropykvm gencrt --cert cert.pem --key key.pem
 
-# Run MyKVM
-uv run mykvm --cert cert.pem --key key.pem
+# Run zeropykvm
+zeropykvm --cert cert.pem --key key.pem
 
 # With custom settings
-uv run mykvm --cert cert.pem --key key.pem --port 443 --bitrate 2000000
+zeropykvm --cert cert.pem --key key.pem --port 443 --bitrate 2000000
 ```
+
+Then open `https://<pi-ip>:8443/` in a browser and accept the self-signed certificate.
 
 ## Testing
 

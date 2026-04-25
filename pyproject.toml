@@ -3,14 +3,15 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mykvm"
+name = "zeropykvm"
 version = "0.1.0"
 description = "A KVM-over-IP solution running on Raspberry Pi Zero 2 W, rewritten in Python"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = "MIT"
 dependencies = [
     "websockets>=14.0",
+    "cryptography>=41.0",
 ]
 
 [project.optional-dependencies]
@@ -25,7 +26,19 @@ epaper = [
 ]
 
 [project.scripts]
-mykvm = "mykvm.main:main"
+zeropykvm = "zeropykvm.main:main"
+
+[tool.setuptools]
+packages = ["zeropykvm"]
+
+[tool.setuptools.package-data]
+zeropykvm = ["static/*", "edid_data/*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

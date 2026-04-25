@@ -1,6 +1,6 @@
 """Tests for utils module."""
 
-from mykvm.utils import fourcc_to_string, get_local_ip
+from zeropykvm.utils import fourcc_to_string, get_local_ip
 
 
 class TestFourccToString:

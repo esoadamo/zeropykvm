@@ -4,7 +4,7 @@ import os
 import tarfile
 import tempfile
 
-from mykvm.http_handler import HttpHandler, _get_content_type
+from zeropykvm.http_handler import HttpHandler, _get_content_type
 
 
 class TestGetContentType:

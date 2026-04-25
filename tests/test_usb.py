@@ -2,7 +2,7 @@
 
 import struct
 
-from mykvm.usb import (
+from zeropykvm.usb import (
     KEYBOARD_REPORT_DESC,
     MOUSE_REPORT_DESC,
     HidKeyboard,
