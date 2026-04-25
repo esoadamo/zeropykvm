@@ -69,25 +69,28 @@ def main():
     edid_ok = True
     try:
         set_edid_with_retry(config.subdev, EdidPreset.P1080_25)
+        # Wait for the source to re-negotiate to the new EDID timings.
+        # Without this pause the source may still be at 60fps when we probe.
+        import time as _time
+        _time.sleep(3)
     except Exception as e:
         logger.warning("Failed to set EDID: %s", e)
         edid_ok = False
     display.update_edid_status(edid_ok)
 
-    # Wait for HDMI signal
+    # Wait for HDMI signal briefly so we have one on startup if possible
     logger.info("Waiting for HDMI signal...")
+    signal_info = None
     try:
-        signal_info = wait_for_signal(config.device, config.subdev, 300)
+        signal_info = wait_for_signal(config.device, config.subdev, 5)
         logger.info(
             "HDMI signal detected: %dx%d @ %dfps",
             signal_info.width, signal_info.height, signal_info.fps,
         )
         display.update_hdmi_status(True)
     except (TimeoutError, OSError) as e:
-        logger.error("No HDMI signal detected: %s", e)
-        logger.error("Please connect HDMI cable and restart.")
+        logger.warning("No HDMI signal detected on startup: %s", e)
         display.update_hdmi_status(False)
-        raise SystemExit(1)
 
     # Set up USB HID
     hid_keyboard = HidKeyboard()

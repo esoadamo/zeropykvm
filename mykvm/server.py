@@ -5,6 +5,21 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+# NAL unit types
+_NAL_IDR = 5
+_NAL_SPS = 7
+_NAL_PPS = 8
+
+
+def _contains_nal_type(data: bytes, nal_type: int) -> bool:
+    """Return True if Annex-B data contains a NAL unit of the given type."""
+    i = 0
+    while i + 4 < len(data):
+        if data[i:i+4] == b'\x00\x00\x00\x01' and (data[i+4] & 0x1f) == nal_type:
+            return True
+        i += 1
+    return False
+
 
 class Server:
     """Manages WebSocket client connections and broadcasts video data.
@@ -23,9 +38,14 @@ class Server:
         self.mouse = mouse
         self.clients: list = []
         self._lock = threading.Lock()
+        # Last complete keyframe (SPS+PPS+IDR) for late-joining clients
+        self._last_keyframe: bytes | None = None
+        self._kf_lock = threading.Lock()
+        # Event to request a forced keyframe from the video thread
+        self.keyframe_requested = threading.Event()
 
     def add_client(self, ws) -> None:
-        """Add a WebSocket client.
+        """Add a WebSocket client and send the last keyframe if available.
 
         Args:
             ws: WebSocket connection object.
@@ -33,6 +53,18 @@ class Server:
         with self._lock:
             self.clients.append(ws)
             logger.info("Client connected. Total clients: %d", len(self.clients))
+
+        # Request the video thread to force a new keyframe for this client
+        self.keyframe_requested.set()
+
+        # Immediately send the last cached keyframe so the client doesn't wait
+        with self._kf_lock:
+            kf = self._last_keyframe
+        if kf is not None:
+            try:
+                ws.send(kf)
+            except Exception:
+                pass
 
     def remove_client(self, ws) -> None:
         """Remove a WebSocket client.
@@ -46,6 +78,15 @@ class Server:
                 logger.info("Client disconnected. Total clients: %d", len(self.clients))
             except ValueError:
                 pass
+
+    def update_keyframe(self, data: bytes) -> None:
+        """Cache a complete keyframe (SPS+PPS+IDR) for late-joining clients.
+
+        Args:
+            data: Encoded H.264 Annex-B data containing an IDR frame.
+        """
+        with self._kf_lock:
+            self._last_keyframe = data
 
     def broadcast(self, data: bytes) -> None:
         """Broadcast binary data to all connected clients.

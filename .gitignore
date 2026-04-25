@@ -10,3 +10,4 @@ build/
 .tox/
 .venv/
 venv/
+AGENTS.md

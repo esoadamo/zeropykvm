@@ -14,7 +14,7 @@ from .capture import Capture
 from .dma import DmaBuffer, DmaHeap
 from .edid import SignalInfo, wait_for_signal
 from .encode import Encoder, EncoderConfig
-from .server import Server
+from .server import Server, _contains_nal_type
 from .utils import fourcc_to_string, ioctl_raw
 
 logger = logging.getLogger(__name__)
@@ -48,9 +48,17 @@ def _probe_format(device: str, subdev: str) -> dict:
         # The signal may have changed resolution since initial detection.
         dv_timings = v4l2.v4l2_dv_timings()
         ctypes.memset(ctypes.byref(dv_timings), 0, ctypes.sizeof(dv_timings))
-        fd_sub = os.open(subdev, os.O_RDONLY)
+        fd_sub = os.open(subdev, os.O_RDWR)
         try:
-            ioctl_raw(fd_sub, v4l2.VIDIOC_SUBDEV_G_DV_TIMINGS, ctypes.byref(dv_timings))
+            try:
+                ioctl_raw(fd_sub, v4l2.VIDIOC_QUERY_DV_TIMINGS, ctypes.byref(dv_timings))
+            except OSError:
+                ioctl_raw(fd_sub, v4l2.VIDIOC_SUBDEV_G_DV_TIMINGS, ctypes.byref(dv_timings))
+            # On kernel 6.x+ the subdev is read-only; S_DV may fail with EPERM
+            try:
+                ioctl_raw(fd_sub, v4l2.VIDIOC_S_DV_TIMINGS, ctypes.byref(dv_timings))
+            except OSError:
+                pass
         finally:
             os.close(fd_sub)
         ioctl_raw(fd, v4l2.VIDIOC_S_DV_TIMINGS, ctypes.byref(dv_timings))
@@ -164,6 +172,10 @@ def _run_session(server: Server, capture_device: str,
                 try:
                     logger.info("Zero-copy pipeline ready, starting capture loop...")
 
+                    # Force a keyframe every ~2 seconds so late-joining clients
+                    # don't wait long, and also on demand when a client connects.
+                    KEYFRAME_INTERVAL = 50
+                    frame_counter = 0
                     timeout_count = 0
                     while True:
                         try:
@@ -181,6 +193,13 @@ def _run_session(server: Server, capture_device: str,
                             break
 
                         timeout_count = 0
+
+                        # Force a keyframe periodically or when a client just connected
+                        if (frame_counter % KEYFRAME_INTERVAL == 0
+                                or server.keyframe_requested.is_set()):
+                            enc.force_key_frame()
+                            server.keyframe_requested.clear()
+                        frame_counter += 1
 
                         try:
                             enc_result = enc.encode_from_buffer(
@@ -206,6 +225,10 @@ def _run_session(server: Server, capture_device: str,
                             logger.error("Broadcast error: %s", e)
                             continue
 
+                        # Cache keyframes (containing IDR) for late-joining clients
+                        if _contains_nal_type(enc_result.data, 5):  # IDR = 5
+                            server.update_keyframe(enc_result.data)
+
                 finally:
                     cap.close()
             finally:
@@ -218,7 +241,7 @@ def _run_session(server: Server, capture_device: str,
 
 
 def run(server: Server, capture_device: str, encoder_device: str,
-        bitrate: int, subdev: str, initial_signal: SignalInfo) -> None:
+        bitrate: int, subdev: str, initial_signal: SignalInfo | None) -> None:
     """Run the video pipeline with automatic recovery.
 
     This function runs in a loop, recovering from errors by waiting for
@@ -232,7 +255,7 @@ def run(server: Server, capture_device: str, encoder_device: str,
         subdev: Path to V4L2 subdevice.
         initial_signal: Signal info from initial HDMI detection.
     """
-    first_run = True
+    first_run = initial_signal is not None
     current_signal = initial_signal
 
     while True:
@@ -250,7 +273,7 @@ def run(server: Server, capture_device: str, encoder_device: str,
             _run_session(server, capture_device, encoder_device, bitrate, first_run, current_signal, subdev)
         except Exception as e:
             logger.error("Session error: %s", e)
-            if first_run:
+            if first_run and initial_signal is not None:
                 raise
 
         first_run = False
