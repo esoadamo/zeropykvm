@@ -10,13 +10,18 @@ A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig]
 - **USB HID gadget**: Emulates USB keyboard and mouse via Linux ConfigFS, with Boot Protocol support for BIOS compatibility
 - **HTTPS + WebSocket**: Serves a web frontend over HTTPS with WebSocket for real-time video streaming and HID control
 - **E-Paper display**: Optional status display on Waveshare EPD 2in13 V4
-- **EDID management**: Sets custom EDID on the HDMI capture device for resolution control
 
 ## Demo hardware
 
 - [Raspberry Pi Zero 2 W](https://rpishop.cz/raspberry-pi-zero/4311-raspberry-pi-zero-2-w.html) ([Archive](https://web.archive.org/web/20241129185458/https://rpishop.cz/raspberry-pi-zero/4311-raspberry-pi-zero-2-w.html))
 - [Waveshare HDMI-CSI Adapter](https://rpishop.cz/mipi/3795-waveshare-hdmi-csi-adapter-pro-raspberry-pi.html) ([Archive](https://web.archive.org/web/20241120194451/https://rpishop.cz/mipi/3795-waveshare-hdmi-csi-adapter-pro-raspberry-pi.html))
 - [Raspberry Pi Zero Camera Cable (38 cm)](https://rpishop.cz/mipi/695-raspberry-pi-zero-kamera-kabel-38-cm.html) ([Archive](https://web.archive.org/web/20230528221841/https://rpishop.cz/mipi/695-raspberry-pi-zero-kamera-kabel-38-cm.html))
+
+## Screenshots
+
+![Web UI — Pi Zero 2 W capturing its own HDMI output, viewed in the browser](screenshots/ui.png)
+
+![Hardware — Raspberry Pi Zero 2 W connected to the Waveshare HDMI-CSI adapter via flex cable](screenshots/irl.jpeg)
 
 ## Architecture
 
