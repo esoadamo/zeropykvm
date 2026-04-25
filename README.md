@@ -71,8 +71,8 @@ pip install zeropykvm[epaper]
 ### Development setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/mykvm-python.git
-cd mykvm-python
+git clone https://github.com/esoadamo/zeropykvm.git
+cd zeropykvm
 uv sync
 
 # With development tools
