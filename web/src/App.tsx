@@ -14,16 +14,14 @@ function App() {
   const [brightness, setBrightness] = useState(120);
   const [contrast, setContrast] = useState(120);
   const [saturate, setSaturate] = useState(100);
+  const [crtOpacity, setCrtOpacity] = useState(60);
   const [sigLedOn, setSigLedOn] = useState(true);
   const [elapsedTime, setElapsedTime] = useState(0);
 
   const screenContainerRef = useRef<HTMLDivElement>(null);
   const crtScreenRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
-
-  // Fullscreen escape handling
-  const escCountRef = useRef(0);
-  const lastEscTimeRef = useRef(0);
+  const cursorRef = useRef<HTMLDivElement>(null);
 
   const handleData = useCallback(
     (data: Uint8Array) => {
@@ -42,7 +40,9 @@ function App() {
     crtScreenRef.current?.classList.add('power-off');
     decoder.destroy();
     // Exit fullscreen and blur input on disconnect
-    setIsFullscreen(false);
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
     screenContainerRef.current?.blur();
   }, [decoder]);
 
@@ -57,6 +57,7 @@ function App() {
     send: connection.send,
     log,
     invertScroll,
+    cursorRef,
   });
 
   // Bind HID input to screen container
@@ -94,29 +95,18 @@ function App() {
     return () => clearInterval(interval);
   }, [connection.stats.startTime]);
 
-  // Global ESC handler for fullscreen exit
+  // Global fullscreenchange handler
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isFullscreen) {
-        const now = Date.now();
-        if (now - lastEscTimeRef.current < 500) {
-          escCountRef.current++;
-        } else {
-          escCountRef.current = 1;
-        }
-        lastEscTimeRef.current = now;
-
-        if (escCountRef.current >= 3) {
-          setIsFullscreen(false);
-          escCountRef.current = 0;
-          log('Exited Fullscreen Mode.');
-        }
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+      if (!document.fullscreenElement) {
+        log('Exited Fullscreen Mode.');
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen, log]);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [log]);
 
   const handlePowerClick = async () => {
     if (connection.isConnected) {
@@ -130,9 +120,16 @@ function App() {
   };
 
   const handleFullscreenClick = () => {
-    setIsFullscreen(true);
-    screenContainerRef.current?.focus();
-    log('Entered Fullscreen Mode. Press ESC 3 times quickly to exit.', 'success');
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        log(`Error attempting to enable fullscreen: ${err.message}`, 'error');
+      });
+      setIsFullscreen(true);
+      screenContainerRef.current?.focus();
+      log('Entered Fullscreen Mode. Press ESC to exit.', 'success');
+    } else {
+      document.exitFullscreen();
+    }
   };
 
   const filterStyle = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturate}%)`;
@@ -148,11 +145,12 @@ function App() {
               className={`screen-container ${isFullscreen ? 'fake-fullscreen' : ''} ${localCursor ? 'local-cursor-active' : ''}`}
               tabIndex={0}
             >
-              <div className="scanlines" />
-              <div className="screen-glare" />
+              {/* CRT Effects */}
+              <div className="scanlines" style={{ opacity: crtOpacity / 100 }} />
+              <div className="screen-glare" style={{ opacity: crtOpacity / 100 }} />
 
               {/* Local cursor overlay */}
-              <div className="local-cursor">
+              <div ref={cursorRef} className="local-cursor" style={{ display: localCursor ? 'block' : 'none' }}>
                 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path
                     d="M4 4L10.5 20L12.5 13.5L19 11.5L4 4Z"
@@ -296,6 +294,16 @@ function App() {
                 max="200"
                 value={saturate}
                 onChange={(e) => setSaturate(Number(e.target.value))}
+              />
+            </div>
+            <div className="slider-row">
+              <span>CRT</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={crtOpacity}
+                onChange={(e) => setCrtOpacity(Number(e.target.value))}
               />
             </div>
           </div>

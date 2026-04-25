@@ -6,9 +6,10 @@ interface UseHidInputOptions {
   send: (data: string) => void;
   log: (msg: string, type?: 'info' | 'error' | 'success') => void;
   invertScroll?: boolean;
+  cursorRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-export function useHidInput({ send, log, invertScroll = false }: UseHidInputOptions) {
+export function useHidInput({ send, log, invertScroll = false, cursorRef }: UseHidInputOptions) {
   const [isActive, setIsActive] = useState(false);
   const lastMouseMoveRef = useRef(0);
   const containerRef = useRef<HTMLElement | null>(null);
@@ -77,12 +78,43 @@ export function useHidInput({ send, log, invertScroll = false }: UseHidInputOpti
 
       const target = event.currentTarget as HTMLElement;
       const rect = target.getBoundingClientRect();
-      const x = Math.floor(((event.clientX - rect.left) / rect.width) * 32767);
-      const y = Math.floor(((event.clientY - rect.top) / rect.height) * 32767);
+
+      let videoW = 1920;
+      let videoH = 1080;
+
+      const canvas = target.querySelector<HTMLCanvasElement>('canvas.display-surface');
+      if (canvas && canvas.width) {
+        videoW = canvas.width;
+        videoH = canvas.height;
+      } else {
+        const video = target.querySelector<HTMLVideoElement>('video.display-surface');
+        if (video && video.videoWidth) {
+          videoW = video.videoWidth;
+          videoH = video.videoHeight;
+        }
+      }
+
+      // Calculate object-fit: contain dimensions
+      const scale = Math.min(rect.width / videoW, rect.height / videoH);
+      const actualW = videoW * scale;
+      const actualH = videoH * scale;
+
+      const offsetX = (rect.width - actualW) / 2;
+      const offsetY = (rect.height - actualH) / 2;
+
+      let x = Math.floor(((event.clientX - rect.left - offsetX) / actualW) * 32767);
+      let y = Math.floor(((event.clientY - rect.top - offsetY) / actualH) * 32767);
 
       // Clamp values to valid range
       const clampedX = Math.max(0, Math.min(32767, x));
       const clampedY = Math.max(0, Math.min(32767, y));
+
+      if (cursorRef?.current) {
+        const leftPercent = ((offsetX + (clampedX / 32767) * actualW) / rect.width) * 100;
+        const topPercent = ((offsetY + (clampedY / 32767) * actualH) / rect.height) * 100;
+        cursorRef.current.style.left = `${leftPercent}%`;
+        cursorRef.current.style.top = `${topPercent}%`;
+      }
 
       send(
         JSON.stringify({
@@ -93,7 +125,7 @@ export function useHidInput({ send, log, invertScroll = false }: UseHidInputOpti
         })
       );
     },
-    [isActive, send]
+    [isActive, send, cursorRef]
   );
 
   const handleMouseDown = useCallback(
