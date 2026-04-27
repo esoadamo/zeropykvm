@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './index.css';
-import { useLogger, useVideoDecoder, useKvmConnection, useHidInput } from './hooks';
+import { useLogger, useVideoDecoder, useKvmConnection, useHidInput, useLocalStorage } from './hooks';
 
 function App() {
   const { logs, log } = useLogger();
@@ -20,12 +20,13 @@ function App() {
   const decoder = useVideoDecoder(log, canvasRef, videoRef, handleBacklogChange);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [localCursor, setLocalCursor] = useState(false);
-  const [invertScroll, setInvertScroll] = useState(false);
-  const [brightness, setBrightness] = useState(120);
-  const [contrast, setContrast] = useState(120);
-  const [saturate, setSaturate] = useState(100);
-  const [crtOpacity, setCrtOpacity] = useState(60);
+  const [localCursor, setLocalCursor] = useLocalStorage('localCursor', true);
+  const [invertScroll, setInvertScroll] = useLocalStorage('invertScroll', false);
+  const [isMaximized, setIsMaximized] = useLocalStorage('isMaximized', false);
+  const [brightness, setBrightness] = useLocalStorage('brightness', 120);
+  const [contrast, setContrast] = useLocalStorage('contrast', 120);
+  const [saturate, setSaturate] = useLocalStorage('saturate', 100);
+  const [crtOpacity, setCrtOpacity] = useLocalStorage('crtOpacity', 60);
   const [sigLedOn, setSigLedOn] = useState(true);
   const [elapsedTime, setElapsedTime] = useState(0);
 
@@ -140,6 +141,7 @@ function App() {
         log(`Error attempting to enable fullscreen: ${err.message}`, 'error');
       });
       setIsFullscreen(true);
+      setIsMaximized(true);
       screenContainerRef.current?.focus();
       log('Entered Fullscreen Mode. Press ESC to exit.', 'success');
     } else {
@@ -157,7 +159,7 @@ function App() {
           <div className="monitor-bezel-inner">
             <div
               ref={screenContainerRef}
-              className={`screen-container ${isFullscreen ? 'fake-fullscreen' : ''} ${localCursor ? 'local-cursor-active' : ''}`}
+              className={`screen-container ${(isFullscreen || isMaximized) ? 'fake-fullscreen' : ''} ${localCursor ? 'local-cursor-active' : ''}`}
               tabIndex={0}
             >
               {/* CRT Effects */}
@@ -273,6 +275,14 @@ function App() {
               onChange={(e) => setLocalCursor(e.target.checked)}
             />
             <span>Local Cursor</span>
+          </label>
+          <label className="checkbox-row" style={{ marginTop: '6px' }}>
+            <input
+              type="checkbox"
+              checked={isMaximized}
+              onChange={(e) => setIsMaximized(e.target.checked)}
+            />
+            <span>Maximized</span>
           </label>
           <label className="checkbox-row" style={{ marginTop: '6px' }}>
             <input
