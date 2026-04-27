@@ -4,7 +4,7 @@
 # Push:   podman compose push
 # Run:    podman compose up -d
 
-FROM docker.io/python:3.12-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 # Create the video group (GID 44 is conventional on Linux) and a dedicated
 # application user that belongs to it so the container can access
@@ -20,12 +20,12 @@ WORKDIR /app
 COPY --chown=pyzerokvm:video . .
 
 # Stage the pre-built web frontend into the package data directory so
-# that 'pip install .' picks it up via the package-data declaration.
+# that 'uv pip install .' picks it up via the package-data declaration.
 RUN mkdir -p zeropykvm/static && \
     cp web/dist.tar zeropykvm/static/dist.tar
 
-# Install the application (no editable install – clean production image)
-RUN pip install --no-cache-dir .
+# Install the application using uv (no editable install – clean production image)
+RUN uv pip install --system --no-cache .
 
 # Data directory – mount a host volume here to persist certs/config
 VOLUME ["/etc/zeropykvm"]
