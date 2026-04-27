@@ -328,7 +328,7 @@ class TestConstants:
         assert DATA_DIR == "/etc/zeropykvm"
 
     def test_default_service_user(self):
-        assert SERVICE_USER == "www-data"
+        assert SERVICE_USER == "pyzerokvm"
 
     def test_default_service_name(self):
         assert SERVICE_NAME == "zeropykvm"

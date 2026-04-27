@@ -4,8 +4,8 @@
 #   podman-compose up -d              # pull pre-built image from Docker Hub
 #   podman-compose up -d --build      # build locally from Containerfile first
 #
-# The container runs as the www-data user (uid 33) and stores
-# TLS certificates and configuration in /etc/zeropykvm/ on the host.
+# The container runs as root and stores TLS certificates and configuration
+# in /etc/zeropykvm/ on the host.
 
 version: "3.9"
 
@@ -17,7 +17,6 @@ services:
       dockerfile: Containerfile
     container_name: zeropykvm
     restart: unless-stopped
-    user: "33:33"  # www-data
     ports:
       - "8443:8443"
     volumes:

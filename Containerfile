@@ -5,6 +5,11 @@
 # Run:    podman run --rm -p 8443:8443 zeropykvm
 FROM docker.io/esoadamo/zeropykvm:latest
 
+# Create a dedicated system user that is a member of the video group.
+# The container itself runs as root; this user exists for host-side
+# systemd service installs that use the same image as a reference.
+RUN useradd --system --user-group --groups video --no-create-home pyzerokvm
+
 # Data directory – mount a host volume here to persist certs/config
 VOLUME ["/etc/zeropykvm"]
 

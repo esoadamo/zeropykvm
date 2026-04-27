@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 DATA_DIR = "/etc/zeropykvm"
-SERVICE_USER = "www-data"
+SERVICE_USER = "pyzerokvm"
 SERVICE_NAME = "zeropykvm"
 SERVICE_FILE = f"/etc/systemd/system/{SERVICE_NAME}.service"
 
@@ -151,7 +151,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="zeropykvm install-service",
         description=(
-            "Install zeropykvm as a systemd service running as www-data "
+            "Install zeropykvm as a systemd service running as pyzerokvm "
             "with data stored in /etc/zeropykvm/"
         ),
     )

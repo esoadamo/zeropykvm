@@ -106,7 +106,7 @@ Then open `https://<pi-ip>:8443/` in a browser (or whatever port you chose) and 
 - writes `/etc/systemd/system/zeropykvm.service` and runs `daemon-reload` → `enable` → `start`
 
 ```bash
-# Install with defaults (port 8443, user www-data, data dir /etc/zeropykvm)
+# Install with defaults (port 8443, user pyzerokvm, data dir /etc/zeropykvm)
 sudo zeropykvm install-service
 
 # Custom port and data directory
@@ -130,7 +130,7 @@ A `Containerfile` and `podman-compose.yml` are provided for running zeropykvm in
 sudo mkdir -p /etc/zeropykvm
 sudo zeropykvm gencrt --cert /etc/zeropykvm/cert.pem --key /etc/zeropykvm/key.pem
 
-# 2. Start the container (runs as www-data, uid 33)
+# 2. Start the container (runs as root)
 podman-compose up -d
 
 # 2a. Or build the image locally from the Containerfile first
