@@ -162,14 +162,75 @@ class TestInstallService:
             data_dir = os.path.join(tmpdir, "zeropykvm")
             service_file = os.path.join(tmpdir, "zeropykvm.service")
             with self._mock_subprocess():
-                install_service(
-                    data_dir=data_dir,
-                    service_file=service_file,
-                    enable=False,
-                    start=False,
-                )
+                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
+                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
+                    with mock.patch("zeropykvm.install_service.os.chown"):
+                        install_service(
+                            data_dir=data_dir,
+                            service_file=service_file,
+                            enable=False,
+                            start=False,
+                        )
             assert os.path.isfile(os.path.join(data_dir, "cert.pem"))
             assert os.path.isfile(os.path.join(data_dir, "key.pem"))
+
+    def test_key_chowned_to_service_user(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "zeropykvm")
+            service_file = os.path.join(tmpdir, "zeropykvm.service")
+            with self._mock_subprocess():
+                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
+                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1234, pw_gid=5678)
+                    with mock.patch("zeropykvm.install_service.os.chown") as mock_chown:
+                        install_service(
+                            data_dir=data_dir,
+                            user="testuser",
+                            service_file=service_file,
+                            enable=False,
+                            start=False,
+                        )
+            key_path = os.path.join(data_dir, "key.pem")
+            mock_chown.assert_called_once_with(key_path, 1234, 5678)
+            mock_pwd.getpwnam.assert_called_once_with("testuser")
+
+    def test_key_chmod_600_enforced_after_generation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "zeropykvm")
+            service_file = os.path.join(tmpdir, "zeropykvm.service")
+            with self._mock_subprocess():
+                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
+                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
+                    with mock.patch("zeropykvm.install_service.os.chown"):
+                        with mock.patch("zeropykvm.install_service.os.chmod") as mock_chmod:
+                            install_service(
+                                data_dir=data_dir,
+                                service_file=service_file,
+                                enable=False,
+                                start=False,
+                            )
+            key_path = os.path.join(data_dir, "key.pem")
+            # os.chmod must have been called with the key path and mode 0o600
+            chmod_calls = [c for c in mock_chmod.call_args_list if c.args[0] == key_path]
+            assert any(c.args[1] == 0o600 for c in chmod_calls), (
+                f"Expected chmod 600 on key; calls: {mock_chmod.call_args_list}"
+            )
+
+    def test_unknown_user_logs_warning_and_continues(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "zeropykvm")
+            service_file = os.path.join(tmpdir, "zeropykvm.service")
+            with self._mock_subprocess():
+                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
+                    mock_pwd.getpwnam.side_effect = KeyError("nouser")
+                    # Should not raise; installation continues
+                    install_service(
+                        data_dir=data_dir,
+                        user="nouser",
+                        service_file=service_file,
+                        enable=False,
+                        start=False,
+                    )
+            assert os.path.isfile(service_file)
 
     def test_does_not_overwrite_existing_cert(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -183,16 +244,20 @@ class TestInstallService:
                 f.write("existing key")
             service_file = os.path.join(tmpdir, "zeropykvm.service")
             with self._mock_subprocess():
-                install_service(
-                    data_dir=data_dir,
-                    service_file=service_file,
-                    enable=False,
-                    start=False,
-                )
+                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
+                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
+                    with mock.patch("zeropykvm.install_service.os.chown"):
+                        install_service(
+                            data_dir=data_dir,
+                            service_file=service_file,
+                            enable=False,
+                            start=False,
+                        )
             with open(cert_path) as f:
                 assert f.read() == "existing cert"
             with open(key_path) as f:
                 assert f.read() == "existing key"
+
 
     def test_calls_daemon_reload(self):
         with tempfile.TemporaryDirectory() as tmpdir:

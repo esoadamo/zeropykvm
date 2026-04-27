@@ -7,6 +7,7 @@ Usage:
 import argparse
 import datetime
 import ipaddress
+import os
 import socket
 import sys
 
@@ -95,15 +96,15 @@ def generate_cert(
         .sign(private_key, hashes.SHA256())
     )
 
-    # Write private key (PEM, unencrypted)
-    with open(key_path, "wb") as f:
-        f.write(
-            private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-        )
+    # Write private key (PEM, unencrypted) with mode 600 from creation
+    key_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    fd = os.open(key_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(key_bytes)
 
     # Write certificate (PEM)
     with open(cert_path, "wb") as f:

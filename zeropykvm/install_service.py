@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import os
+import pwd
 import subprocess
 import sys
 
@@ -102,6 +103,14 @@ def install_service(
         generate_cert(cert_path=cert_path, key_path=key_path)
     else:
         print(f"TLS certificate already exists: {cert_path}")
+
+    # Ensure the private key is owned by the service user and has mode 600
+    try:
+        pw = pwd.getpwnam(user)
+        os.chown(key_path, pw.pw_uid, pw.pw_gid)
+        os.chmod(key_path, 0o600)
+    except KeyError:
+        print(f"Warning: user '{user}' not found; skipping key ownership change", file=sys.stderr)
 
     # Write systemd unit file
     exec_path = _find_executable()
