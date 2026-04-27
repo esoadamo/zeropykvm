@@ -1,20 +1,40 @@
-# Containerfile (Podmanfile) for zeropykvm
+# Containerfile for zeropykvm
 #
-# Uses the official zeropykvm image published on Docker Hub by esoadamo.
-# Build:  podman build -t zeropykvm .
-# Run:    podman run --rm -p 8443:8443 zeropykvm
-FROM docker.io/esoadamo/zeropykvm:latest
+# Build:  podman compose build
+# Push:   podman compose push
+# Run:    podman compose up -d
 
-# Create a dedicated system user that is a member of the video group.
-# The container itself runs as root; this user exists for host-side
-# systemd service installs that use the same image as a reference.
-RUN useradd --system --user-group --groups video --no-create-home pyzerokvm
+FROM docker.io/python:3.12-slim
+
+# Create the video group (GID 44 is conventional on Linux) and a dedicated
+# application user that belongs to it so the container can access
+# /dev/video* devices when the host group GID matches.
+RUN groupadd --gid 44 video 2>/dev/null || true && \
+    useradd --system --create-home --home-dir /app \
+            --user-group --gid 44 \
+            --uid 1000 pyzerokvm
+
+WORKDIR /app
+
+# Copy source tree
+COPY --chown=pyzerokvm:video . .
+
+# Stage the pre-built web frontend into the package data directory so
+# that 'pip install .' picks it up via the package-data declaration.
+RUN mkdir -p zeropykvm/static && \
+    cp web/dist.tar zeropykvm/static/dist.tar
+
+# Install the application (no editable install – clean production image)
+RUN pip install --no-cache-dir .
 
 # Data directory – mount a host volume here to persist certs/config
 VOLUME ["/etc/zeropykvm"]
 
 # Default HTTPS port
 EXPOSE 8443
+
+# Drop privileges: run as the video-group member
+USER pyzerokvm
 
 ENTRYPOINT ["zeropykvm"]
 CMD ["--cert", "/etc/zeropykvm/cert.pem", "--key", "/etc/zeropykvm/key.pem", "--no-epaper"]

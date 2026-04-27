@@ -1,11 +1,9 @@
-# podman-compose.yml – launch zeropykvm in a Podman container
+# podman-compose.yml – build, push, and run zeropykvm in a Podman container
 #
 # Usage:
-#   podman-compose up -d              # pull pre-built image from Docker Hub
-#   podman-compose up -d --build      # build locally from Containerfile first
-#
-# The container runs as root and stores TLS certificates and configuration
-# in /etc/zeropykvm/ on the host.
+#   podman compose build              # build image from Containerfile
+#   podman compose push               # push to docker.io
+#   podman compose up -d              # start container
 
 version: "3.9"
 
@@ -21,12 +19,6 @@ services:
       - "8443:8443"
     volumes:
       - /etc/zeropykvm:/etc/zeropykvm:z
-    command:
-      - "--cert"
-      - "/etc/zeropykvm/cert.pem"
-      - "--key"
-      - "/etc/zeropykvm/key.pem"
-      - "--no-epaper"
     devices:
       - /dev/video0:/dev/video0
       - /dev/video11:/dev/video11
