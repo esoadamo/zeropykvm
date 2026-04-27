@@ -8,13 +8,14 @@ from .usb import ModifierFlags
 logger = logging.getLogger(__name__)
 
 
-def handle_message(server, data: str | bytes) -> None:
+def handle_message(server, websocket, data: str | bytes) -> None:
     """Handle a WebSocket message from the client.
 
-    Dispatches keyboard and mouse events to the appropriate HID device.
+    Dispatches keyboard, mouse, and ping events to the appropriate handler.
 
     Args:
         server: Server instance with keyboard and mouse.
+        websocket: The WebSocket connection to send replies on.
         data: Raw message data (JSON string).
     """
     if isinstance(data, bytes):
@@ -31,6 +32,8 @@ def handle_message(server, data: str | bytes) -> None:
         _handle_keyboard_event(server, msg)
     elif event_type == "mouse":
         _handle_mouse_event(server, msg)
+    elif event_type == "ping":
+        _handle_ping(websocket, msg)
     else:
         logger.warning("Unknown event type: %s", event_type)
 
@@ -57,6 +60,20 @@ def _handle_keyboard_event(server, msg: dict) -> None:
         server.keyboard.key_down(code, modifiers)
     elif event == "keyup":
         server.keyboard.key_up(code, modifiers)
+
+
+def _handle_ping(websocket, msg: dict) -> None:
+    """Handle a ping message by sending a pong reply.
+
+    Args:
+        websocket: The WebSocket connection to send the pong on.
+        msg: Parsed ping message containing a 'ts' timestamp.
+    """
+    pong = json.dumps({"type": "pong", "ts": msg.get("ts")})
+    try:
+        websocket.send(pong)
+    except Exception as e:
+        logger.warning("Failed to send pong: %s", e)
 
 
 def _handle_mouse_event(server, msg: dict) -> None:

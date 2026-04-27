@@ -232,6 +232,12 @@ function App() {
               <span className="lcd-value">{connection.formatBytes(connection.stats.totalBytes)}</span>
             </div>
             <div className="lcd-row">
+              <span>RTT:</span>
+              <span className="lcd-value">
+                {connection.stats.rtt !== null ? `${connection.stats.rtt}ms` : '--'}
+              </span>
+            </div>
+            <div className="lcd-row">
               <span>TIME:</span>
               <span className="lcd-value">
                 {connection.formatTime(elapsedTime)}

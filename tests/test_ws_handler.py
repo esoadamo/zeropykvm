@@ -34,6 +34,16 @@ class MockMouse:
         self.events.append(("wheel", delta))
 
 
+class MockWebSocket:
+    """Mock WebSocket for testing."""
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, data):
+        self.sent.append(data)
+
+
 class MockServer:
     """Mock server with keyboard and mouse."""
 
@@ -53,7 +63,7 @@ class TestHandleKeyboardEvents:
             "code": "KeyA",
             "modifiers": {"ctrl": False, "alt": False, "shift": False, "meta": False},
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 1
         event_type, code, mods = server.keyboard.events[0]
         assert event_type == "keydown"
@@ -68,7 +78,7 @@ class TestHandleKeyboardEvents:
             "code": "KeyA",
             "modifiers": {"ctrl": False, "alt": False, "shift": False, "meta": False},
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 1
         assert server.keyboard.events[0][0] == "keyup"
 
@@ -80,7 +90,7 @@ class TestHandleKeyboardEvents:
             "code": "KeyC",
             "modifiers": {"ctrl": True, "alt": False, "shift": False, "meta": False},
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         _, _, mods = server.keyboard.events[0]
         assert mods.ctrl
         assert not mods.alt
@@ -94,7 +104,7 @@ class TestHandleKeyboardEvents:
             "code": "KeyA",
             "modifiers": {},
         }).encode()
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 1
 
 
@@ -109,7 +119,7 @@ class TestHandleMouseEvents:
             "x": 100,
             "y": 200,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.mouse.events) == 1
         assert server.mouse.events[0] == ("move", 100, 200)
 
@@ -120,7 +130,7 @@ class TestHandleMouseEvents:
             "event": "down",
             "button": 0,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("click", 0, True)
 
     def test_button_up(self):
@@ -130,7 +140,7 @@ class TestHandleMouseEvents:
             "event": "up",
             "button": 0,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("click", 0, False)
 
     def test_wheel(self):
@@ -140,7 +150,7 @@ class TestHandleMouseEvents:
             "event": "wheel",
             "delta": -3,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("wheel", -3)
 
     def test_wheel_clamped(self):
@@ -150,7 +160,7 @@ class TestHandleMouseEvents:
             "event": "wheel",
             "delta": 500,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("wheel", 127)
 
     def test_right_click(self):
@@ -160,7 +170,7 @@ class TestHandleMouseEvents:
             "event": "down",
             "button": 2,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("click", 2, True)
 
 
@@ -169,28 +179,50 @@ class TestInvalidMessages:
 
     def test_invalid_json(self):
         server = MockServer()
-        handle_message(server, "not json")
+        handle_message(server, MockWebSocket(), "not json")
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
 
     def test_unknown_type(self):
         server = MockServer()
         msg = json.dumps({"type": "unknown"})
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
 
     def test_missing_type(self):
         server = MockServer()
         msg = json.dumps({"event": "keydown"})
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         # Should not crash: type defaults to None which doesn't match any handler
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
 
     def test_empty_string(self):
         server = MockServer()
-        handle_message(server, "")
+        handle_message(server, MockWebSocket(), "")
         # Should not crash: empty string is invalid JSON, no events processed
+        assert len(server.keyboard.events) == 0
+        assert len(server.mouse.events) == 0
+
+
+class TestPingPong:
+    """Test ping/pong RTT handling."""
+
+    def test_ping_sends_pong(self):
+        server = MockServer()
+        ws = MockWebSocket()
+        msg = json.dumps({"type": "ping", "ts": 12345.678})
+        handle_message(server, ws, msg)
+        assert len(ws.sent) == 1
+        pong = json.loads(ws.sent[0])
+        assert pong["type"] == "pong"
+        assert pong["ts"] == 12345.678
+
+    def test_ping_no_keyboard_or_mouse_events(self):
+        server = MockServer()
+        ws = MockWebSocket()
+        msg = json.dumps({"type": "ping", "ts": 0})
+        handle_message(server, ws, msg)
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
