@@ -7,7 +7,6 @@ Reference: https://www.kernel.org/doc/html/latest/userspace-api/dma-buf-alloc-ex
 import ctypes
 import logging
 import os
-import select
 import time
 
 from . import v4l2
@@ -22,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 NUM_BUFFERS = 6
 
-# Minimum output frame rate: skip backlogged capture frames to avoid a growing
-# delay while still guaranteeing the client receives at least this many frames
-# per second when the source is faster than the network can handle.
+# Minimum output frame rate floor: even when the client has requested frame
+# skipping (slow network / decoder backlog), force-send a frame once this
+# interval has elapsed so the display does not freeze entirely.
 _MIN_FPS = 20
 _MIN_SEND_INTERVAL_NS = 1_000_000_000 // _MIN_FPS  # 50 ms
 
@@ -202,13 +201,14 @@ def _run_session(server: Server, capture_device: str,
 
                         timeout_count = 0
 
-                        # Skip backlogged frames to maintain minimum output frame rate.
-                        # If another frame is already waiting in the capture queue
-                        # (we are running behind) and we have sent a frame within
-                        # the minimum interval, drop this frame to catch up.
                         now_ns = time.monotonic_ns()
-                        more_waiting = bool(select.select([cap.fd], [], [], 0)[0])
-                        if more_waiting and (now_ns - last_sent_ns) < _MIN_SEND_INTERVAL_NS:
+
+                        # Skip frame if the client has signalled it is behind
+                        # (decoder backlog / slow network), but never skip for
+                        # longer than _MIN_SEND_INTERVAL_NS so the display
+                        # doesn't freeze entirely (guarantees ≥20fps floor).
+                        if (server.skip_frames_requested.is_set()
+                                and (now_ns - last_sent_ns) < _MIN_SEND_INTERVAL_NS):
                             try:
                                 cap.queue_buffer(cap_result.index)
                             except OSError as qerr:

@@ -43,6 +43,10 @@ class Server:
         self._kf_lock = threading.Lock()
         # Event to request a forced keyframe from the video thread
         self.keyframe_requested = threading.Event()
+        # Event set by clients when they are falling behind (decoder backlog);
+        # the video thread will skip capture frames while this is set, subject
+        # to the minimum frame-rate floor.
+        self.skip_frames_requested = threading.Event()
 
     def add_client(self, ws) -> None:
         """Add a WebSocket client and send the last keyframe if available.

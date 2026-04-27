@@ -6,7 +6,18 @@ function App() {
   const { logs, log } = useLogger();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const decoder = useVideoDecoder(log, canvasRef, videoRef);
+
+  // Stable ref to connection.send; updated each render so the backlog callback
+  // (which is created once) always picks up the live send function.
+  const sendRef = useRef<((data: string) => void) | undefined>(undefined);
+
+  // Stable callback: fires when the decoder backlog state changes and sends
+  // a frameskip/resume message to the server over the WebSocket.
+  const handleBacklogChange = useCallback((isBacklogged: boolean) => {
+    sendRef.current?.(JSON.stringify({ type: 'frameskip', skip: isBacklogged }));
+  }, []);
+
+  const decoder = useVideoDecoder(log, canvasRef, videoRef, handleBacklogChange);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [localCursor, setLocalCursor] = useState(false);
@@ -52,6 +63,10 @@ function App() {
     onDisconnect: handleDisconnect,
     onData: handleData,
   });
+
+  // Keep sendRef pointing at the live send function so the stable
+  // handleBacklogChange callback can always reach it.
+  sendRef.current = connection.send;
 
   const hidInput = useHidInput({
     send: connection.send,

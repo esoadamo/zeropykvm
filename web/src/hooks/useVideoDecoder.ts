@@ -36,7 +36,8 @@ function shouldForceJmuxer(): boolean {
 export function useVideoDecoder(
   log: (msg: string, type?: 'info' | 'error' | 'success') => void,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
-  videoRef: React.RefObject<HTMLVideoElement | null>
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  onBacklogChange?: (isBacklogged: boolean) => void
 ) {
   const [useWebCodecs, setUseWebCodecs] = useState(false);
   const canvasCtxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -48,6 +49,12 @@ export function useVideoDecoder(
   // H264 demuxer for WebCodecs (handles raw stream → complete AUs)
   const demuxerRef = useRef<H264Demuxer | null>(null);
   const frameTimestampRef = useRef(0);
+
+  // Backlog tracking: whether we have already notified the server of a backlog
+  const backlogActiveRef = useRef(false);
+  // jMuxer fallback: track arrival interval for burst detection
+  const lastFeedTimeRef = useRef(0);
+  const burstCountRef = useRef(0);
 
   const init = useCallback(async (): Promise<boolean> => {
     const forceJmuxer = shouldForceJmuxer();
@@ -88,6 +95,9 @@ export function useVideoDecoder(
         // Initialize demuxer
         demuxerRef.current = new H264Demuxer();
         frameTimestampRef.current = 0;
+        backlogActiveRef.current = false;
+        lastFeedTimeRef.current = 0;
+        burstCountRef.current = 0;
 
         setUseWebCodecs(true);
         log('Using WebCodecs (low latency mode)', 'success');
@@ -149,6 +159,15 @@ export function useVideoDecoder(
 
   const feed = useCallback((data: Uint8Array) => {
     if (videoDecoderRef.current && demuxerRef.current) {
+      // Check decode queue BEFORE adding new frames.  If the decoder is still
+      // working through frames from the previous call, we are behind.
+      const queueBefore = videoDecoderRef.current?.decodeQueueSize ?? 0;
+      const isBacklogged = queueBefore > 0;
+      if (isBacklogged !== backlogActiveRef.current) {
+        backlogActiveRef.current = isBacklogged;
+        onBacklogChange?.(isBacklogged);
+      }
+
       // Use demuxer to extract complete frames from raw H264 stream
       const { frames } = demuxerRef.current.feed(data);
 
@@ -216,9 +235,32 @@ export function useVideoDecoder(
         }
       }
     } else if (jmuxerRef.current) {
+      // jMuxer path: detect backlog by measuring how quickly frames arrive.
+      // If consecutive frames arrive in less than half the expected interval
+      // for multiple calls in a row, we are receiving a burst from a backlog.
+      const now = performance.now();
+      const HALF_FRAME_MS = (1000 / VIDEO_FPS) / 2;
+      if (lastFeedTimeRef.current > 0) {
+        const interval = now - lastFeedTimeRef.current;
+        if (interval < HALF_FRAME_MS) {
+          burstCountRef.current += 1;
+          if (burstCountRef.current >= 3 && !backlogActiveRef.current) {
+            backlogActiveRef.current = true;
+            onBacklogChange?.(true);
+          }
+        } else {
+          burstCountRef.current = 0;
+          if (backlogActiveRef.current) {
+            backlogActiveRef.current = false;
+            onBacklogChange?.(false);
+          }
+        }
+      }
+      lastFeedTimeRef.current = now;
+
       jmuxerRef.current.feed({ video: data });
     }
-  }, []);
+  }, [onBacklogChange]);
 
   const destroy = useCallback(() => {
     if (videoDecoderRef.current) {
@@ -232,6 +274,9 @@ export function useVideoDecoder(
     frameTimestampRef.current = 0;
     isConfiguredRef.current = false;
     needKeyframeRef.current = true;
+    backlogActiveRef.current = false;
+    lastFeedTimeRef.current = 0;
+    burstCountRef.current = 0;
 
     if (demuxerRef.current) {
       demuxerRef.current.reset();

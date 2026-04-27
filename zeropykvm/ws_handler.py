@@ -34,6 +34,8 @@ def handle_message(server, websocket, data: str | bytes) -> None:
         _handle_mouse_event(server, msg)
     elif event_type == "ping":
         _handle_ping(websocket, msg)
+    elif event_type == "frameskip":
+        _handle_frameskip(server, msg)
     else:
         logger.warning("Unknown event type: %s", event_type)
 
@@ -74,6 +76,25 @@ def _handle_ping(websocket, msg: dict) -> None:
         websocket.send(pong)
     except Exception as e:
         logger.warning("Failed to send pong: %s", e)
+
+
+def _handle_frameskip(server, msg: dict) -> None:
+    """Handle a frameskip message from the client.
+
+    When ``skip`` is True the client is falling behind (decoder backlog) and
+    the video thread should drop capture frames to catch up.  When False the
+    client has caught up and full-rate streaming can resume.
+
+    Args:
+        server: Server instance with skip_frames_requested Event.
+        msg: Parsed frameskip message with a boolean ``skip`` field.
+    """
+    if msg.get("skip"):
+        server.skip_frames_requested.set()
+        logger.debug("Frame-skip requested by client")
+    else:
+        server.skip_frames_requested.clear()
+        logger.debug("Frame-skip cleared by client")
 
 
 def _handle_mouse_event(server, msg: dict) -> None:

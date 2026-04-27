@@ -48,8 +48,10 @@ class MockServer:
     """Mock server with keyboard and mouse."""
 
     def __init__(self):
+        import threading
         self.keyboard = MockKeyboard()
         self.mouse = MockMouse()
+        self.skip_frames_requested = threading.Event()
 
 
 class TestHandleKeyboardEvents:
@@ -224,5 +226,36 @@ class TestPingPong:
         ws = MockWebSocket()
         msg = json.dumps({"type": "ping", "ts": 0})
         handle_message(server, ws, msg)
+        assert len(server.keyboard.events) == 0
+        assert len(server.mouse.events) == 0
+
+
+class TestFrameSkip:
+    """Test frameskip message handling."""
+
+    def test_frameskip_true_sets_event(self):
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_frames_requested.is_set()
+
+    def test_frameskip_false_clears_event(self):
+        server = MockServer()
+        server.skip_frames_requested.set()
+        msg = json.dumps({"type": "frameskip", "skip": False})
+        handle_message(server, MockWebSocket(), msg)
+        assert not server.skip_frames_requested.is_set()
+
+    def test_frameskip_false_when_already_clear(self):
+        """Clearing an already-clear event should not raise."""
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": False})
+        handle_message(server, MockWebSocket(), msg)
+        assert not server.skip_frames_requested.is_set()
+
+    def test_frameskip_no_keyboard_or_mouse_events(self):
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True})
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
