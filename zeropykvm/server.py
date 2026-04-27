@@ -44,9 +44,11 @@ class Server:
         # Event to request a forced keyframe from the video thread
         self.keyframe_requested = threading.Event()
         # Event set by clients when they are falling behind (decoder backlog);
-        # the video thread will skip capture frames while this is set, subject
-        # to the minimum frame-rate floor.
+        # the video thread will skip capture frames while this is set.
         self.skip_frames_requested = threading.Event()
+        # Target FPS requested by the client during frame-skip (plain int;
+        # GIL makes reads/writes atomic for CPython).  0 means no skip.
+        self.skip_target_fps: int = 0
 
     def add_client(self, ws) -> None:
         """Add a WebSocket client and send the last keyframe if available.
@@ -82,6 +84,23 @@ class Server:
                 logger.info("Client disconnected. Total clients: %d", len(self.clients))
             except ValueError:
                 pass
+
+    def set_skip(self, fps: int) -> None:
+        """Set frame-skip mode requested by the client.
+
+        Args:
+            fps: Target frames-per-second the server should send while
+                 skipping.  0 clears frame-skip mode (resume full rate).
+        """
+        self.skip_target_fps = fps
+        if fps > 0:
+            self.skip_frames_requested.set()
+        else:
+            self.skip_frames_requested.clear()
+
+    def get_skip_fps(self) -> int:
+        """Return the client-requested skip FPS (0 = not skipping)."""
+        return self.skip_target_fps
 
     def update_keyframe(self, data: bytes) -> None:
         """Cache a complete keyframe (SPS+PPS+IDR) for late-joining clients.

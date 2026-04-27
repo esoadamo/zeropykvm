@@ -13,8 +13,8 @@ function App() {
 
   // Stable callback: fires when the decoder backlog state changes and sends
   // a frameskip/resume message to the server over the WebSocket.
-  const handleBacklogChange = useCallback((isBacklogged: boolean) => {
-    sendRef.current?.(JSON.stringify({ type: 'frameskip', skip: isBacklogged }));
+  const handleBacklogChange = useCallback((targetFps: number) => {
+    sendRef.current?.(JSON.stringify({ type: 'frameskip', skip: targetFps > 0, fps: targetFps }));
   }, []);
 
   const decoder = useVideoDecoder(log, canvasRef, videoRef, handleBacklogChange);

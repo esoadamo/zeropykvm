@@ -37,7 +37,7 @@ export function useVideoDecoder(
   log: (msg: string, type?: 'info' | 'error' | 'success') => void,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   videoRef: React.RefObject<HTMLVideoElement | null>,
-  onBacklogChange?: (isBacklogged: boolean) => void
+  onBacklogChange?: (targetFps: number) => void
 ) {
   const [useWebCodecs, setUseWebCodecs] = useState(false);
   const canvasCtxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -52,6 +52,7 @@ export function useVideoDecoder(
 
   // Backlog tracking: whether we have already notified the server of a backlog
   const backlogActiveRef = useRef(false);
+  const lastTargetFpsRef = useRef(0);
   // jMuxer fallback: track arrival interval for burst detection
   const lastFeedTimeRef = useRef(0);
   const burstCountRef = useRef(0);
@@ -96,6 +97,7 @@ export function useVideoDecoder(
         demuxerRef.current = new H264Demuxer();
         frameTimestampRef.current = 0;
         backlogActiveRef.current = false;
+        lastTargetFpsRef.current = 0;
         lastFeedTimeRef.current = 0;
         burstCountRef.current = 0;
 
@@ -159,13 +161,21 @@ export function useVideoDecoder(
 
   const feed = useCallback((data: Uint8Array) => {
     if (videoDecoderRef.current && demuxerRef.current) {
-      // Check decode queue BEFORE adding new frames.  If the decoder is still
-      // working through frames from the previous call, we are behind.
+      // Check decode queue BEFORE adding new frames.  Use queue depth to
+      // pick an aggressive-enough target FPS so the network pipe drains fast.
+      //   queue == 0          → no backlog (resume full rate, targetFps=0)
+      //   queue 1             → mild        → 10 fps
+      //   queue 2-3           → moderate    → 3 fps
+      //   queue >= 4          → heavy       → 1 fps (near-freeze on server)
       const queueBefore = videoDecoderRef.current?.decodeQueueSize ?? 0;
-      const isBacklogged = queueBefore > 0;
-      if (isBacklogged !== backlogActiveRef.current) {
-        backlogActiveRef.current = isBacklogged;
-        onBacklogChange?.(isBacklogged);
+      let targetFps = 0;
+      if (queueBefore >= 4) targetFps = 1;
+      else if (queueBefore >= 2) targetFps = 3;
+      else if (queueBefore >= 1) targetFps = 10;
+      if (targetFps !== lastTargetFpsRef.current) {
+        lastTargetFpsRef.current = targetFps;
+        backlogActiveRef.current = targetFps > 0;
+        onBacklogChange?.(targetFps);
       }
 
       // Use demuxer to extract complete frames from raw H264 stream
@@ -238,21 +248,29 @@ export function useVideoDecoder(
       // jMuxer path: detect backlog by measuring how quickly frames arrive.
       // If consecutive frames arrive in less than half the expected interval
       // for multiple calls in a row, we are receiving a burst from a backlog.
+      // Use burst count to pick an appropriate target FPS.
       const now = performance.now();
       const HALF_FRAME_MS = (1000 / VIDEO_FPS) / 2;
       if (lastFeedTimeRef.current > 0) {
         const interval = now - lastFeedTimeRef.current;
         if (interval < HALF_FRAME_MS) {
           burstCountRef.current += 1;
-          if (burstCountRef.current >= 3 && !backlogActiveRef.current) {
+          // Pick target fps based on burst severity
+          let targetFps = 0;
+          if (burstCountRef.current >= 8) targetFps = 1;
+          else if (burstCountRef.current >= 5) targetFps = 3;
+          else if (burstCountRef.current >= 3) targetFps = 10;
+          if (targetFps > 0 && targetFps !== lastTargetFpsRef.current) {
+            lastTargetFpsRef.current = targetFps;
             backlogActiveRef.current = true;
-            onBacklogChange?.(true);
+            onBacklogChange?.(targetFps);
           }
         } else {
           burstCountRef.current = 0;
           if (backlogActiveRef.current) {
             backlogActiveRef.current = false;
-            onBacklogChange?.(false);
+            lastTargetFpsRef.current = 0;
+            onBacklogChange?.(0);
           }
         }
       }
@@ -275,6 +293,7 @@ export function useVideoDecoder(
     isConfiguredRef.current = false;
     needKeyframeRef.current = true;
     backlogActiveRef.current = false;
+    lastTargetFpsRef.current = 0;
     lastFeedTimeRef.current = 0;
     burstCountRef.current = 0;
 

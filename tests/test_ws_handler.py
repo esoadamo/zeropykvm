@@ -52,6 +52,17 @@ class MockServer:
         self.keyboard = MockKeyboard()
         self.mouse = MockMouse()
         self.skip_frames_requested = threading.Event()
+        self.skip_target_fps: int = 0
+
+    def set_skip(self, fps: int) -> None:
+        self.skip_target_fps = fps
+        if fps > 0:
+            self.skip_frames_requested.set()
+        else:
+            self.skip_frames_requested.clear()
+
+    def get_skip_fps(self) -> int:
+        return self.skip_target_fps
 
 
 class TestHandleKeyboardEvents:
@@ -238,13 +249,36 @@ class TestFrameSkip:
         msg = json.dumps({"type": "frameskip", "skip": True})
         handle_message(server, MockWebSocket(), msg)
         assert server.skip_frames_requested.is_set()
+        assert server.skip_target_fps > 0
+
+    def test_frameskip_true_uses_provided_fps(self):
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True, "fps": 3})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_frames_requested.is_set()
+        assert server.skip_target_fps == 3
+
+    def test_frameskip_true_default_fps(self):
+        """When no fps is given, default to 2."""
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_target_fps == 2
+
+    def test_frameskip_fps_minimum_one(self):
+        """fps should be clamped to at least 1."""
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True, "fps": 0})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_target_fps >= 1
 
     def test_frameskip_false_clears_event(self):
         server = MockServer()
-        server.skip_frames_requested.set()
+        server.set_skip(5)
         msg = json.dumps({"type": "frameskip", "skip": False})
         handle_message(server, MockWebSocket(), msg)
         assert not server.skip_frames_requested.is_set()
+        assert server.skip_target_fps == 0
 
     def test_frameskip_false_when_already_clear(self):
         """Clearing an already-clear event should not raise."""

@@ -82,18 +82,22 @@ def _handle_frameskip(server, msg: dict) -> None:
     """Handle a frameskip message from the client.
 
     When ``skip`` is True the client is falling behind (decoder backlog) and
-    the video thread should drop capture frames to catch up.  When False the
-    client has caught up and full-rate streaming can resume.
+    the video thread should throttle its send rate to ``fps`` frames-per-second
+    so the network pipe can drain.  When False (or fps==0) the client has
+    caught up and full-rate streaming can resume.
 
     Args:
-        server: Server instance with skip_frames_requested Event.
-        msg: Parsed frameskip message with a boolean ``skip`` field.
+        server: Server instance with set_skip method.
+        msg: Parsed frameskip message with boolean ``skip`` and optional
+             integer ``fps`` (target send rate while skipping, default 2).
     """
     if msg.get("skip"):
-        server.skip_frames_requested.set()
-        logger.debug("Frame-skip requested by client")
+        fps = int(msg.get("fps", 2))
+        fps = max(1, fps)  # never go below 1 fps
+        server.set_skip(fps)
+        logger.debug("Frame-skip requested by client at %d fps", fps)
     else:
-        server.skip_frames_requested.clear()
+        server.set_skip(0)
         logger.debug("Frame-skip cleared by client")
 
 
