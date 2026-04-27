@@ -133,6 +133,9 @@ sudo zeropykvm gencrt --cert /etc/zeropykvm/cert.pem --key /etc/zeropykvm/key.pe
 # 2. Start the container (runs as www-data, uid 33)
 podman-compose up -d
 
+# 2a. Or build the image locally from the Containerfile first
+podman-compose up -d --build
+
 # 3. View logs
 podman-compose logs -f
 ```
