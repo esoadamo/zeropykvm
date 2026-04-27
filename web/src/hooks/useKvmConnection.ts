@@ -7,11 +7,11 @@ export interface ConnectionStats {
 }
 
 function getWebSocketUrl(): string {
-  // WebSocket uses the same port as HTTP
+  // Use the same host (including port) as the current page so that reverse
+  // proxies forwarding on a non-default port are handled correctly.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname || '127.0.0.1';
-  const port = window.location.port || '8443';
-  return `${protocol}//${host}:${port}`;
+  const host = window.location.host || '127.0.0.1';
+  return `${protocol}//${host}`;
 }
 
 function formatBytes(bytes: number): string {
