@@ -44,6 +44,7 @@ The Python rewrite mirrors the original Zig project's architecture:
 | `https_server.py` | HTTPS/TLS server with WebSocket upgrade |
 | `video.py` | Zero-copy video pipeline orchestration |
 | `gencert.py` | Self-signed certificate generator (`zeropykvm gencrt` subcommand) |
+| `install_service.py` | Systemd service installer (`zeropykvm install-service` subcommand) |
 | `main.py` | Main entry point |
 
 ## Requirements
@@ -95,7 +96,65 @@ zeropykvm --cert cert.pem --key key.pem
 zeropykvm --cert cert.pem --key key.pem --port 443 --bitrate 2000000
 ```
 
-Then open `https://<pi-ip>:8443/` in a browser and accept the self-signed certificate.
+Then open `https://<pi-ip>:8443/` in a browser (or whatever port you chose) and accept the self-signed certificate.
+
+### Systemd service
+
+`zeropykvm install-service` automates the full setup on a Raspberry Pi OS host:
+- creates `/etc/zeropykvm/` (mode `0755`)
+- generates a self-signed TLS certificate there if one does not already exist
+- writes `/etc/systemd/system/zeropykvm.service` and runs `daemon-reload` → `enable` → `start`
+
+```bash
+# Install with defaults (port 8443, user www-data, data dir /etc/zeropykvm)
+sudo zeropykvm install-service
+
+# Custom port and data directory
+sudo zeropykvm install-service --port 443 --data-dir /opt/zeropykvm
+
+# Install without starting the service immediately
+sudo zeropykvm install-service --no-start
+
+# Full option list
+zeropykvm install-service --help
+```
+
+### Container (Podman)
+
+A `Containerfile` and `podman-compose.yml` are provided for running zeropykvm inside a container.
+
+**podman-compose (recommended)**
+
+```bash
+# 1. Generate TLS certificates on the host first
+sudo mkdir -p /etc/zeropykvm
+sudo zeropykvm gencrt --cert /etc/zeropykvm/cert.pem --key /etc/zeropykvm/key.pem
+
+# 2. Start the container (runs as www-data, uid 33)
+podman-compose up -d
+
+# 3. View logs
+podman-compose logs -f
+```
+
+The compose file mounts `/etc/zeropykvm` from the host, passes through the required video devices (`/dev/video0`, `/dev/video11`, `/dev/v4l-subdev0`), and restarts the container unless stopped manually.
+
+**Manual podman run**
+
+```bash
+podman run -d \
+  --name zeropykvm \
+  --restart unless-stopped \
+  -p 8443:8443 \
+  -v /etc/zeropykvm:/etc/zeropykvm:z \
+  --device /dev/video0 \
+  --device /dev/video11 \
+  --device /dev/v4l-subdev0 \
+  docker.io/esoadamo/zeropykvm:latest \
+  --cert /etc/zeropykvm/cert.pem \
+  --key /etc/zeropykvm/key.pem \
+  --no-epaper
+```
 
 ## Testing
 
