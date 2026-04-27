@@ -1,18 +1,16 @@
 """Install zeropykvm as a systemd service.
 
 Usage:
-    zeropykvm install-service [--data-dir DIR] [--user USER] [--port PORT]
+    zeropykvm install-service [--data-dir DIR] [--port PORT]
                               [--no-enable] [--no-start]
 """
 
 import argparse
 import os
-import pwd
 import subprocess
 import sys
 
 DATA_DIR = "/etc/zeropykvm"
-SERVICE_USER = "zeropykvm"
 SERVICE_NAME = "zeropykvm"
 SERVICE_FILE = f"/etc/systemd/system/{SERVICE_NAME}.service"
 
@@ -34,15 +32,16 @@ def _find_executable() -> str:
 def build_service_unit(
     exec_path: str,
     data_dir: str,
-    user: str,
     port: int,
 ) -> str:
     """Return the content of the systemd unit file as a string.
 
+    The service always runs as root, which is required to create USB HID
+    gadgets through ConfigFS (/sys/kernel/config/usb_gadget/).
+
     Args:
         exec_path: Absolute path to the zeropykvm executable.
         data_dir: Directory that stores certs and config.
-        user: System user to run the service as.
         port: HTTPS port to listen on.
 
     Returns:
@@ -57,7 +56,6 @@ def build_service_unit(
         "\n"
         "[Service]\n"
         "Type=simple\n"
-        f"User={user}\n"
         f"WorkingDirectory={data_dir}\n"
         f"ExecStart={exec_path}"
         f" --cert {cert_path}"
@@ -72,35 +70,8 @@ def build_service_unit(
     )
 
 
-def _ensure_user(user: str) -> None:
-    """Create a system user if it does not already exist.
-
-    Args:
-        user: The system username to check/create.
-    """
-    try:
-        pwd.getpwnam(user)
-        return  # user already exists
-    except KeyError:
-        pass
-    print(f"Creating system user '{user}'...")
-    subprocess.run(
-        [
-            "useradd",
-            "--system",
-            "--no-create-home",
-            "--shell", "/usr/sbin/nologin",
-            "--groups", "video",
-            user,
-        ],
-        check=True,
-    )
-    print(f"User '{user}' created.")
-
-
 def install_service(
     data_dir: str = DATA_DIR,
-    user: str = SERVICE_USER,
     port: int = 8443,
     enable: bool = True,
     start: bool = True,
@@ -108,9 +79,11 @@ def install_service(
 ) -> None:
     """Install and optionally enable/start the zeropykvm systemd service.
 
+    The service always runs as root, which is required for USB HID gadget
+    creation through ConfigFS (/sys/kernel/config/usb_gadget/).
+
     Args:
         data_dir: Directory for certificates and config (will be created).
-        user: System user to run the service as.
         port: HTTPS port to listen on.
         enable: Whether to enable the service at boot.
         start: Whether to start the service immediately.
@@ -119,9 +92,6 @@ def install_service(
     # Create data directory
     os.makedirs(data_dir, mode=0o755, exist_ok=True)
     print(f"Data directory: {data_dir}")
-
-    # Ensure the service user exists, creating it if necessary
-    _ensure_user(user)
 
     # Generate TLS certificate if not present
     cert_path = os.path.join(data_dir, "cert.pem")
@@ -133,20 +103,14 @@ def install_service(
     else:
         print(f"TLS certificate already exists: {cert_path}")
 
-    # Ensure the private key is owned by the service user and has mode 600
-    try:
-        pw = pwd.getpwnam(user)
-        os.chown(key_path, pw.pw_uid, pw.pw_gid)
-        os.chmod(key_path, 0o600)
-    except KeyError:
-        print(f"Warning: user '{user}' not found; skipping key ownership change", file=sys.stderr)
+    # Restrict access to the private key
+    os.chmod(key_path, 0o600)
 
     # Write systemd unit file
     exec_path = _find_executable()
     unit_content = build_service_unit(
         exec_path=exec_path,
         data_dir=data_dir,
-        user=user,
         port=port,
     )
     with open(service_file, "w") as f:
@@ -189,7 +153,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="zeropykvm install-service",
         description=(
-            "Install zeropykvm as a systemd service running as pyzerokvm "
+            "Install zeropykvm as a systemd service running as root "
             "with data stored in /etc/zeropykvm/"
         ),
     )
@@ -198,12 +162,6 @@ def main() -> None:
         default=DATA_DIR,
         metavar="<dir>",
         help=f"Directory for certificates and config (default: {DATA_DIR})",
-    )
-    parser.add_argument(
-        "--user",
-        default=SERVICE_USER,
-        metavar="<user>",
-        help=f"System user to run the service as (default: {SERVICE_USER})",
     )
     parser.add_argument(
         "--port",
@@ -228,7 +186,6 @@ def main() -> None:
     try:
         install_service(
             data_dir=args.data_dir,
-            user=args.user,
             port=args.port,
             enable=not args.no_enable,
             start=not args.no_start,

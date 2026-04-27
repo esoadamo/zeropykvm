@@ -7,6 +7,7 @@ Reference: https://www.kernel.org/doc/html/latest/userspace-api/dma-buf-alloc-ex
 import ctypes
 import logging
 import os
+import select
 import time
 
 from . import v4l2
@@ -20,6 +21,12 @@ from .utils import fourcc_to_string, ioctl_raw
 logger = logging.getLogger(__name__)
 
 NUM_BUFFERS = 6
+
+# Minimum output frame rate: skip backlogged capture frames to avoid a growing
+# delay while still guaranteeing the client receives at least this many frames
+# per second when the source is faster than the network can handle.
+_MIN_FPS = 20
+_MIN_SEND_INTERVAL_NS = 1_000_000_000 // _MIN_FPS  # 50 ms
 
 
 def _probe_format(device: str, subdev: str) -> dict:
@@ -177,6 +184,7 @@ def _run_session(server: Server, capture_device: str,
                     KEYFRAME_INTERVAL = 50
                     frame_counter = 0
                     timeout_count = 0
+                    last_sent_ns = 0
                     while True:
                         try:
                             cap_result = cap.dequeue_buffer(2000)
@@ -193,6 +201,19 @@ def _run_session(server: Server, capture_device: str,
                             break
 
                         timeout_count = 0
+
+                        # Skip backlogged frames to maintain minimum output frame rate.
+                        # If another frame is already waiting in the capture queue
+                        # (we are running behind) and we have sent a frame within
+                        # the minimum interval, drop this frame to catch up.
+                        now_ns = time.monotonic_ns()
+                        more_waiting = bool(select.select([cap.fd], [], [], 0)[0])
+                        if more_waiting and (now_ns - last_sent_ns) < _MIN_SEND_INTERVAL_NS:
+                            try:
+                                cap.queue_buffer(cap_result.index)
+                            except OSError as qerr:
+                                logger.warning("Failed to re-queue skipped frame: %s", qerr)
+                            continue
 
                         # Force a keyframe periodically or when a client just connected
                         if (frame_counter % KEYFRAME_INTERVAL == 0
@@ -224,6 +245,8 @@ def _run_session(server: Server, capture_device: str,
                         except Exception as e:
                             logger.error("Broadcast error: %s", e)
                             continue
+
+                        last_sent_ns = now_ns
 
                         # Cache keyframes (containing IDR) for late-joining clients
                         if _contains_nal_type(enc_result.data, 5):  # IDR = 5

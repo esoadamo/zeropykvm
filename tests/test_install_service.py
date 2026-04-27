@@ -11,7 +11,6 @@ from zeropykvm.install_service import (
     DATA_DIR,
     SERVICE_FILE,
     SERVICE_NAME,
-    SERVICE_USER,
     build_service_unit,
     install_service,
     main,
@@ -22,55 +21,55 @@ class TestBuildServiceUnit:
     """Tests for build_service_unit()."""
 
     def test_contains_exec_path(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "/usr/bin/zeropykvm" in unit
 
     def test_contains_cert_path(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "--cert /etc/zeropykvm/cert.pem" in unit
 
     def test_contains_key_path(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "--key /etc/zeropykvm/key.pem" in unit
 
     def test_contains_port(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 9000)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 9000)
         assert "--port 9000" in unit
 
-    def test_contains_user(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "myuser", 8443)
-        assert "User=myuser" in unit
+    def test_does_not_contain_user_directive(self):
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
+        assert "User=" not in unit
 
     def test_contains_working_directory(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/var/lib/kvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/var/lib/kvm", 8443)
         assert "WorkingDirectory=/var/lib/kvm" in unit
 
     def test_contains_restart_policy(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "Restart=on-failure" in unit
 
     def test_contains_wanted_by(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "WantedBy=multi-user.target" in unit
 
     def test_contains_no_epaper(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "--no-epaper" in unit
 
     def test_has_unit_section(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "[Unit]" in unit
 
     def test_has_service_section(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "[Service]" in unit
 
     def test_has_install_section(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", "www-data", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "[Install]" in unit
 
     def test_custom_data_dir(self):
-        unit = build_service_unit("/usr/bin/zeropykvm", "/tmp/mykvm", "myuser", 8443)
+        unit = build_service_unit("/usr/bin/zeropykvm", "/tmp/mykvm", 8443)
         assert "/tmp/mykvm/cert.pem" in unit
         assert "/tmp/mykvm/key.pem" in unit
 
@@ -125,21 +124,20 @@ class TestInstallService:
             assert "[Service]" in content
             assert "[Install]" in content
 
-    def test_service_file_contains_user(self):
+    def test_service_file_has_no_user_directive(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = os.path.join(tmpdir, "zeropykvm")
             service_file = os.path.join(tmpdir, "zeropykvm.service")
             with self._mock_subprocess():
                 install_service(
                     data_dir=data_dir,
-                    user="testuser",
                     service_file=service_file,
                     enable=False,
                     start=False,
                 )
             with open(service_file) as f:
                 content = f.read()
-            assert "User=testuser" in content
+            assert "User=" not in content
 
     def test_service_file_contains_port(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -162,103 +160,33 @@ class TestInstallService:
             data_dir = os.path.join(tmpdir, "zeropykvm")
             service_file = os.path.join(tmpdir, "zeropykvm.service")
             with self._mock_subprocess():
-                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
-                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
-                    with mock.patch("zeropykvm.install_service.os.chown"):
-                        install_service(
-                            data_dir=data_dir,
-                            service_file=service_file,
-                            enable=False,
-                            start=False,
-                        )
+                install_service(
+                    data_dir=data_dir,
+                    service_file=service_file,
+                    enable=False,
+                    start=False,
+                )
             assert os.path.isfile(os.path.join(data_dir, "cert.pem"))
             assert os.path.isfile(os.path.join(data_dir, "key.pem"))
-
-    def test_key_chowned_to_service_user(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            data_dir = os.path.join(tmpdir, "zeropykvm")
-            service_file = os.path.join(tmpdir, "zeropykvm.service")
-            with self._mock_subprocess():
-                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
-                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1234, pw_gid=5678)
-                    with mock.patch("zeropykvm.install_service.os.chown") as mock_chown:
-                        install_service(
-                            data_dir=data_dir,
-                            user="testuser",
-                            service_file=service_file,
-                            enable=False,
-                            start=False,
-                        )
-            key_path = os.path.join(data_dir, "key.pem")
-            mock_chown.assert_called_once_with(key_path, 1234, 5678)
-            mock_pwd.getpwnam.assert_any_call("testuser")
 
     def test_key_chmod_600_enforced_after_generation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = os.path.join(tmpdir, "zeropykvm")
             service_file = os.path.join(tmpdir, "zeropykvm.service")
             with self._mock_subprocess():
-                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
-                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
-                    with mock.patch("zeropykvm.install_service.os.chown"):
-                        with mock.patch("zeropykvm.install_service.os.chmod") as mock_chmod:
-                            install_service(
-                                data_dir=data_dir,
-                                service_file=service_file,
-                                enable=False,
-                                start=False,
-                            )
+                with mock.patch("zeropykvm.install_service.os.chmod") as mock_chmod:
+                    install_service(
+                        data_dir=data_dir,
+                        service_file=service_file,
+                        enable=False,
+                        start=False,
+                    )
             key_path = os.path.join(data_dir, "key.pem")
             # os.chmod must have been called with the key path and mode 0o600
             chmod_calls = [c for c in mock_chmod.call_args_list if c.args[0] == key_path]
             assert any(c.args[1] == 0o600 for c in chmod_calls), (
                 f"Expected chmod 600 on key; calls: {mock_chmod.call_args_list}"
             )
-
-    def test_creates_user_when_not_exists(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            data_dir = os.path.join(tmpdir, "zeropykvm")
-            service_file = os.path.join(tmpdir, "zeropykvm.service")
-            with self._mock_subprocess() as mock_run:
-                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
-                    mock_pwd.getpwnam.side_effect = KeyError("nouser")
-                    install_service(
-                        data_dir=data_dir,
-                        user="nouser",
-                        service_file=service_file,
-                        enable=False,
-                        start=False,
-                    )
-            useradd_calls = [
-                c for c in mock_run.call_args_list
-                if c.args and c.args[0] and c.args[0][0] == "useradd"
-            ]
-            assert useradd_calls, "Expected useradd to be called for a missing user"
-            useradd_args = useradd_calls[0].args[0]
-            assert "nouser" in useradd_args
-            assert "--groups" in useradd_args
-            assert "video" in useradd_args
-
-    def test_does_not_create_user_when_already_exists(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            data_dir = os.path.join(tmpdir, "zeropykvm")
-            service_file = os.path.join(tmpdir, "zeropykvm.service")
-            with self._mock_subprocess() as mock_run:
-                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
-                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
-                    with mock.patch("zeropykvm.install_service.os.chown"):
-                        install_service(
-                            data_dir=data_dir,
-                            user="existinguser",
-                            service_file=service_file,
-                            enable=False,
-                            start=False,
-                        )
-            useradd_calls = [
-                c for c in mock_run.call_args_list
-                if c.args and c.args[0] and c.args[0][0] == "useradd"
-            ]
-            assert not useradd_calls, "useradd should not be called when user already exists"
 
     def test_does_not_overwrite_existing_cert(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -272,20 +200,33 @@ class TestInstallService:
                 f.write("existing key")
             service_file = os.path.join(tmpdir, "zeropykvm.service")
             with self._mock_subprocess():
-                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
-                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
-                    with mock.patch("zeropykvm.install_service.os.chown"):
-                        install_service(
-                            data_dir=data_dir,
-                            service_file=service_file,
-                            enable=False,
-                            start=False,
-                        )
+                install_service(
+                    data_dir=data_dir,
+                    service_file=service_file,
+                    enable=False,
+                    start=False,
+                )
             with open(cert_path) as f:
                 assert f.read() == "existing cert"
             with open(key_path) as f:
                 assert f.read() == "existing key"
 
+    def test_does_not_create_system_user(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "zeropykvm")
+            service_file = os.path.join(tmpdir, "zeropykvm.service")
+            with self._mock_subprocess() as mock_run:
+                install_service(
+                    data_dir=data_dir,
+                    service_file=service_file,
+                    enable=False,
+                    start=False,
+                )
+            useradd_calls = [
+                c for c in mock_run.call_args_list
+                if c.args and c.args[0] and c.args[0][0] == "useradd"
+            ]
+            assert not useradd_calls, "useradd must not be called; service runs as root"
 
     def test_calls_daemon_reload(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -395,6 +336,14 @@ class TestInstallServiceMain:
                 content = f.read()
             assert "--port 9000" in content
 
+    def test_main_no_user_arg(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                mock.patch("sys.argv", ["zeropykvm install-service", "--help"]),
+                pytest.raises(SystemExit),
+            ):
+                main()
+
     def test_main_help_exits_zero(self):
         with pytest.raises(SystemExit) as exc_info:
             with mock.patch("sys.argv", ["zeropykvm install-service", "--help"]):
@@ -419,9 +368,6 @@ class TestConstants:
 
     def test_default_data_dir(self):
         assert DATA_DIR == "/etc/zeropykvm"
-
-    def test_default_service_user(self):
-        assert SERVICE_USER == "zeropykvm"
 
     def test_default_service_name(self):
         assert SERVICE_NAME == "zeropykvm"
