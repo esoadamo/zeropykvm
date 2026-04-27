@@ -234,7 +234,10 @@ class TestInstallService:
                 if c.args and c.args[0] and c.args[0][0] == "useradd"
             ]
             assert useradd_calls, "Expected useradd to be called for a missing user"
-            assert "nouser" in useradd_calls[0].args[0]
+            useradd_args = useradd_calls[0].args[0]
+            assert "nouser" in useradd_args
+            assert "--groups" in useradd_args
+            assert "video" in useradd_args
 
     def test_does_not_create_user_when_already_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -418,7 +421,7 @@ class TestConstants:
         assert DATA_DIR == "/etc/zeropykvm"
 
     def test_default_service_user(self):
-        assert SERVICE_USER == "pyzerokvm"
+        assert SERVICE_USER == "zeropykvm"
 
     def test_default_service_name(self):
         assert SERVICE_NAME == "zeropykvm"

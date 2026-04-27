@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 DATA_DIR = "/etc/zeropykvm"
-SERVICE_USER = "pyzerokvm"
+SERVICE_USER = "zeropykvm"
 SERVICE_NAME = "zeropykvm"
 SERVICE_FILE = f"/etc/systemd/system/{SERVICE_NAME}.service"
 
@@ -90,6 +90,7 @@ def _ensure_user(user: str) -> None:
             "--system",
             "--no-create-home",
             "--shell", "/usr/sbin/nologin",
+            "--groups", "video",
             user,
         ],
         check=True,
