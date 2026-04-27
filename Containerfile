@@ -33,8 +33,5 @@ VOLUME ["/etc/zeropykvm"]
 # Default HTTPS port
 EXPOSE 8443
 
-# Drop privileges: run as the video-group member
-USER pyzerokvm
-
 ENTRYPOINT ["zeropykvm"]
 CMD ["--cert", "/etc/zeropykvm/cert.pem", "--key", "/etc/zeropykvm/key.pem", "--no-epaper"]

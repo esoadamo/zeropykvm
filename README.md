@@ -106,7 +106,7 @@ Then open `https://<pi-ip>:8443/` in a browser (or whatever port you chose) and 
 - writes `/etc/systemd/system/zeropykvm.service` and runs `daemon-reload` → `enable` → `start`
 
 ```bash
-# Install with defaults (port 8443, user pyzerokvm, data dir /etc/zeropykvm)
+# Install with defaults (port 8443, data dir /etc/zeropykvm) — runs as root
 sudo zeropykvm install-service
 
 # Custom port and data directory
