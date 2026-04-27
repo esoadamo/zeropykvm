@@ -22,7 +22,7 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [localCursor, setLocalCursor] = useLocalStorage('localCursor', true);
   const [invertScroll, setInvertScroll] = useLocalStorage('invertScroll', false);
-  const [isMaximized, setIsMaximized] = useLocalStorage('isMaximized', false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [brightness, setBrightness] = useLocalStorage('brightness', 120);
   const [contrast, setContrast] = useLocalStorage('contrast', 120);
   const [saturate, setSaturate] = useLocalStorage('saturate', 100);
@@ -114,8 +114,10 @@ function App() {
   // Global fullscreenchange handler
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-      if (!document.fullscreenElement) {
+      const inFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(inFullscreen);
+      if (!inFullscreen) {
+        setIsMaximized(false);
         log('Exited Fullscreen Mode.');
       }
     };
@@ -123,6 +125,39 @@ function App() {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [log]);
+
+  // Triple-ESC to exit maximized mode (when not in real fullscreen)
+  const escCountRef = useRef(0);
+  const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMaximizedRef = useRef(isMaximized);
+  const isFullscreenRef = useRef(isFullscreen);
+  isMaximizedRef.current = isMaximized;
+  isFullscreenRef.current = isFullscreen;
+
+  useEffect(() => {
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') {
+        escCountRef.current = 0;
+        return;
+      }
+      if (!isMaximizedRef.current || isFullscreenRef.current) {
+        escCountRef.current = 0;
+        return;
+      }
+      escCountRef.current += 1;
+      if (escTimerRef.current) clearTimeout(escTimerRef.current);
+      escTimerRef.current = setTimeout(() => {
+        escCountRef.current = 0;
+      }, 1500);
+      if (escCountRef.current >= 3) {
+        escCountRef.current = 0;
+        setIsMaximized(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscKey);
+    return () => document.removeEventListener('keydown', handleEscKey);
+  }, []);
 
   const handlePowerClick = async () => {
     if (connection.isConnected) {

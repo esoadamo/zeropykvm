@@ -119,46 +119,6 @@ sudo zeropykvm install-service --no-start
 zeropykvm install-service --help
 ```
 
-### Container (Podman)
-
-A `Containerfile` and `podman-compose.yml` are provided for running zeropykvm inside a container.
-
-**podman-compose (recommended)**
-
-```bash
-# 1. Generate TLS certificates on the host first
-sudo mkdir -p /etc/zeropykvm
-sudo zeropykvm gencrt --cert /etc/zeropykvm/cert.pem --key /etc/zeropykvm/key.pem
-
-# 2. Start the container (runs as root)
-podman-compose up -d
-
-# 2a. Or build the image locally from the Containerfile first
-podman-compose up -d --build
-
-# 3. View logs
-podman-compose logs -f
-```
-
-The compose file mounts `/etc/zeropykvm` from the host, passes through the required video devices (`/dev/video0`, `/dev/video11`, `/dev/v4l-subdev0`), and restarts the container unless stopped manually.
-
-**Manual podman run**
-
-```bash
-podman run -d \
-  --name zeropykvm \
-  --restart unless-stopped \
-  -p 8443:8443 \
-  -v /etc/zeropykvm:/etc/zeropykvm:z \
-  --device /dev/video0 \
-  --device /dev/video11 \
-  --device /dev/v4l-subdev0 \
-  docker.io/esoadamo/zeropykvm:latest \
-  --cert /etc/zeropykvm/cert.pem \
-  --key /etc/zeropykvm/key.pem \
-  --no-epaper
-```
-
 ## Testing
 
 ```bash
