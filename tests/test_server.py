@@ -130,6 +130,15 @@ class TestServer:
         assert len(errors) == 0
         assert len(server.clients) == 400
 
+    def test_input_event_pending_is_event(self):
+        import threading
+        server = Server(MockKeyboard(), MockMouse())
+        assert isinstance(server.input_event_pending, threading.Event)
+
+    def test_input_event_pending_initially_clear(self):
+        server = Server(MockKeyboard(), MockMouse())
+        assert not server.input_event_pending.is_set()
+
     def test_deinit(self):
         server = Server(MockKeyboard(), MockMouse())
         server.add_client(MockWebSocket())

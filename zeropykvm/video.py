@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 NUM_BUFFERS = 6
 
 # Hard floor: even during aggressive frame-skip never go below this rate so
-# the display does not freeze entirely.
-_SKIP_FLOOR_FPS = 1
+# the display does not freeze entirely and the user can see their input.
+_SKIP_FLOOR_FPS = 5
 _SKIP_FLOOR_INTERVAL_NS = 1_000_000_000 // _SKIP_FLOOR_FPS
 
 
@@ -207,6 +207,9 @@ def _run_session(server: Server, capture_device: str,
                         # aggressively to skip; always allow at least one frame
                         # per _SKIP_FLOOR_INTERVAL_NS so the display never
                         # freezes completely.
+                        # Exception: if the user pressed a key or clicked, bypass
+                        # the timer once so their action produces immediate visual
+                        # feedback.
                         if server.skip_frames_requested.is_set():
                             skip_fps = server.get_skip_fps()
                             if skip_fps > 0:
@@ -217,11 +220,16 @@ def _run_session(server: Server, capture_device: str,
                             else:
                                 skip_interval_ns = _SKIP_FLOOR_INTERVAL_NS
                             if (now_ns - last_sent_ns) < skip_interval_ns:
-                                try:
-                                    cap.queue_buffer(cap_result.index)
-                                except OSError as qerr:
-                                    logger.warning("Failed to re-queue skipped frame: %s", qerr)
-                                continue
+                                if server.input_event_pending.is_set():
+                                    # User input: fall through to encode and send
+                                    server.input_event_pending.clear()
+                                else:
+                                    try:
+                                        cap.queue_buffer(cap_result.index)
+                                    except OSError as qerr:
+                                        logger.warning(
+                                            "Failed to re-queue skipped frame: %s", qerr)
+                                    continue
 
                         # Force a keyframe periodically or when a client just connected
                         if (frame_counter % KEYFRAME_INTERVAL == 0

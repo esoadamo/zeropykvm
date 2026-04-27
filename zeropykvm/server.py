@@ -49,6 +49,11 @@ class Server:
         # Target FPS requested by the client during frame-skip (plain int;
         # GIL makes reads/writes atomic for CPython).  0 means no skip.
         self.skip_target_fps: int = 0
+        # Set by the WebSocket handler when a keyboard key-press or mouse
+        # click/button event arrives.  The video thread reads this to bypass
+        # the skip timer once so the user gets immediate visual feedback for
+        # their input even while frameskip mode is active.
+        self.input_event_pending = threading.Event()
 
     def add_client(self, ws) -> None:
         """Add a WebSocket client and send the last keyframe if available.

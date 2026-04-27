@@ -60,6 +60,9 @@ def _handle_keyboard_event(server, msg: dict) -> None:
 
     if event == "keydown":
         server.keyboard.key_down(code, modifiers)
+        # Signal the video thread to send a frame immediately so the user
+        # sees the result of their key press even while frameskip is active.
+        server.input_event_pending.set()
     elif event == "keyup":
         server.keyboard.key_up(code, modifiers)
 
@@ -117,6 +120,9 @@ def _handle_mouse_event(server, msg: dict) -> None:
     elif event == "down":
         button = msg.get("button", 0)
         server.mouse.click(button, True)
+        # Signal the video thread: user clicked → send a frame immediately
+        # so pointer/UI feedback is visible without waiting for the skip timer.
+        server.input_event_pending.set()
     elif event == "up":
         button = msg.get("button", 0)
         server.mouse.click(button, False)

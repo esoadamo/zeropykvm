@@ -6,6 +6,12 @@ import { H264Demuxer, parseSpsDimensions } from './demux';
 const VIDEO_FPS = 25;
 const FRAME_DURATION_US = 1_000_000 / VIDEO_FPS; // microseconds per frame
 
+// Number of consecutive frames at a lower/zero backlog level required before
+// we de-escalate the frameskip fps sent to the server.  Escalation (queue
+// growing) is always immediate.  This prevents rapid 0↔10fps oscillation when
+// decodeQueueSize bounces between 0 and 1.
+const RESUME_HOLD_FRAMES = 10;
+
 export interface VideoDecoderHandle {
   feed: (data: Uint8Array) => void;
   destroy: () => void;
@@ -53,6 +59,10 @@ export function useVideoDecoder(
   // Backlog tracking: whether we have already notified the server of a backlog
   const backlogActiveRef = useRef(false);
   const lastTargetFpsRef = useRef(0);
+  // Hysteresis: number of consecutive frames at a lower fps level needed before
+  // we actually de-escalate (prevents rapid oscillation on decodeQueueSize 0↔1).
+  // Escalation (queue growing) is always immediate.
+  const resumeHoldRef = useRef(0);
   // jMuxer fallback: track arrival interval for burst detection
   const lastFeedTimeRef = useRef(0);
   const burstCountRef = useRef(0);
@@ -98,6 +108,7 @@ export function useVideoDecoder(
         frameTimestampRef.current = 0;
         backlogActiveRef.current = false;
         lastTargetFpsRef.current = 0;
+        resumeHoldRef.current = 0;
         lastFeedTimeRef.current = 0;
         burstCountRef.current = 0;
 
@@ -167,15 +178,33 @@ export function useVideoDecoder(
       //   queue 1             → mild        → 10 fps
       //   queue 2-3           → moderate    → 3 fps
       //   queue >= 4          → heavy       → 1 fps (near-freeze on server)
+      // Hysteresis: escalate immediately, de-escalate only after
+      // RESUME_HOLD_FRAMES consecutive frames at the lower level to prevent
+      // rapid oscillation when decodeQueueSize bounces between 0 and 1.
       const queueBefore = videoDecoderRef.current?.decodeQueueSize ?? 0;
       let targetFps = 0;
       if (queueBefore >= 4) targetFps = 1;
       else if (queueBefore >= 2) targetFps = 3;
       else if (queueBefore >= 1) targetFps = 10;
-      if (targetFps !== lastTargetFpsRef.current) {
+
+      if (targetFps > lastTargetFpsRef.current) {
+        // Queue is growing: escalate immediately
+        resumeHoldRef.current = 0;
         lastTargetFpsRef.current = targetFps;
-        backlogActiveRef.current = targetFps > 0;
+        backlogActiveRef.current = true;
         onBacklogChange?.(targetFps);
+      } else if (targetFps < lastTargetFpsRef.current) {
+        // Queue is shrinking: wait for stability
+        resumeHoldRef.current++;
+        if (resumeHoldRef.current >= RESUME_HOLD_FRAMES) {
+          resumeHoldRef.current = 0;
+          lastTargetFpsRef.current = targetFps;
+          backlogActiveRef.current = targetFps > 0;
+          onBacklogChange?.(targetFps);
+        }
+      } else {
+        // Same level: reset hold counter (still at this level, no need to hold)
+        resumeHoldRef.current = 0;
       }
 
       // Use demuxer to extract complete frames from raw H264 stream
@@ -249,6 +278,7 @@ export function useVideoDecoder(
       // If consecutive frames arrive in less than half the expected interval
       // for multiple calls in a row, we are receiving a burst from a backlog.
       // Use burst count to pick an appropriate target FPS.
+      // Same hysteresis rule: escalate fast, de-escalate slowly.
       const now = performance.now();
       const HALF_FRAME_MS = (1000 / VIDEO_FPS) / 2;
       if (lastFeedTimeRef.current > 0) {
@@ -260,7 +290,9 @@ export function useVideoDecoder(
           if (burstCountRef.current >= 8) targetFps = 1;
           else if (burstCountRef.current >= 5) targetFps = 3;
           else if (burstCountRef.current >= 3) targetFps = 10;
-          if (targetFps > 0 && targetFps !== lastTargetFpsRef.current) {
+          if (targetFps > lastTargetFpsRef.current) {
+            // Escalate immediately
+            resumeHoldRef.current = 0;
             lastTargetFpsRef.current = targetFps;
             backlogActiveRef.current = true;
             onBacklogChange?.(targetFps);
@@ -268,9 +300,14 @@ export function useVideoDecoder(
         } else {
           burstCountRef.current = 0;
           if (backlogActiveRef.current) {
-            backlogActiveRef.current = false;
-            lastTargetFpsRef.current = 0;
-            onBacklogChange?.(0);
+            // De-escalate with hysteresis
+            resumeHoldRef.current++;
+            if (resumeHoldRef.current >= RESUME_HOLD_FRAMES) {
+              resumeHoldRef.current = 0;
+              lastTargetFpsRef.current = 0;
+              backlogActiveRef.current = false;
+              onBacklogChange?.(0);
+            }
           }
         }
       }
@@ -294,6 +331,7 @@ export function useVideoDecoder(
     needKeyframeRef.current = true;
     backlogActiveRef.current = false;
     lastTargetFpsRef.current = 0;
+    resumeHoldRef.current = 0;
     lastFeedTimeRef.current = 0;
     burstCountRef.current = 0;
 
