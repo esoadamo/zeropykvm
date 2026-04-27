@@ -191,7 +191,7 @@ class TestInstallService:
                         )
             key_path = os.path.join(data_dir, "key.pem")
             mock_chown.assert_called_once_with(key_path, 1234, 5678)
-            mock_pwd.getpwnam.assert_called_once_with("testuser")
+            mock_pwd.getpwnam.assert_any_call("testuser")
 
     def test_key_chmod_600_enforced_after_generation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -215,14 +215,13 @@ class TestInstallService:
                 f"Expected chmod 600 on key; calls: {mock_chmod.call_args_list}"
             )
 
-    def test_unknown_user_logs_warning_and_continues(self):
+    def test_creates_user_when_not_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = os.path.join(tmpdir, "zeropykvm")
             service_file = os.path.join(tmpdir, "zeropykvm.service")
-            with self._mock_subprocess():
+            with self._mock_subprocess() as mock_run:
                 with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
                     mock_pwd.getpwnam.side_effect = KeyError("nouser")
-                    # Should not raise; installation continues
                     install_service(
                         data_dir=data_dir,
                         user="nouser",
@@ -230,7 +229,33 @@ class TestInstallService:
                         enable=False,
                         start=False,
                     )
-            assert os.path.isfile(service_file)
+            useradd_calls = [
+                c for c in mock_run.call_args_list
+                if c.args and c.args[0] and c.args[0][0] == "useradd"
+            ]
+            assert useradd_calls, "Expected useradd to be called for a missing user"
+            assert "nouser" in useradd_calls[0].args[0]
+
+    def test_does_not_create_user_when_already_exists(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = os.path.join(tmpdir, "zeropykvm")
+            service_file = os.path.join(tmpdir, "zeropykvm.service")
+            with self._mock_subprocess() as mock_run:
+                with mock.patch("zeropykvm.install_service.pwd") as mock_pwd:
+                    mock_pwd.getpwnam.return_value = mock.Mock(pw_uid=1000, pw_gid=1000)
+                    with mock.patch("zeropykvm.install_service.os.chown"):
+                        install_service(
+                            data_dir=data_dir,
+                            user="existinguser",
+                            service_file=service_file,
+                            enable=False,
+                            start=False,
+                        )
+            useradd_calls = [
+                c for c in mock_run.call_args_list
+                if c.args and c.args[0] and c.args[0][0] == "useradd"
+            ]
+            assert not useradd_calls, "useradd should not be called when user already exists"
 
     def test_does_not_overwrite_existing_cert(self):
         with tempfile.TemporaryDirectory() as tmpdir:

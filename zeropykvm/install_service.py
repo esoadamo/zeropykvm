@@ -72,6 +72,31 @@ def build_service_unit(
     )
 
 
+def _ensure_user(user: str) -> None:
+    """Create a system user if it does not already exist.
+
+    Args:
+        user: The system username to check/create.
+    """
+    try:
+        pwd.getpwnam(user)
+        return  # user already exists
+    except KeyError:
+        pass
+    print(f"Creating system user '{user}'...")
+    subprocess.run(
+        [
+            "useradd",
+            "--system",
+            "--no-create-home",
+            "--shell", "/usr/sbin/nologin",
+            user,
+        ],
+        check=True,
+    )
+    print(f"User '{user}' created.")
+
+
 def install_service(
     data_dir: str = DATA_DIR,
     user: str = SERVICE_USER,
@@ -93,6 +118,9 @@ def install_service(
     # Create data directory
     os.makedirs(data_dir, mode=0o755, exist_ok=True)
     print(f"Data directory: {data_dir}")
+
+    # Ensure the service user exists, creating it if necessary
+    _ensure_user(user)
 
     # Generate TLS certificate if not present
     cert_path = os.path.join(data_dir, "cert.pem")
