@@ -1,10 +1,13 @@
 """Tests for USB HID module."""
 
 import struct
+import threading
+import time
 
 from zeropykvm.usb import (
     KEYBOARD_REPORT_DESC,
     MOUSE_REPORT_DESC,
+    HidDevice,
     HidKeyboard,
     HidMouse,
     ModifierFlags,
@@ -13,6 +16,51 @@ from zeropykvm.usb import (
     _get_modifier_bit,
     _get_scancode,
 )
+
+
+class TestHidDevice:
+    """Test HidDevice background-sender behaviour."""
+
+    def test_write_returns_true_when_queue_has_space(self):
+        """write() must return True (enqueued) as long as the queue is not full."""
+        dev = HidDevice("/nonexistent/hidg_test")
+        result = dev.write(b"\x00" * 8)
+        assert result is True
+        dev.deinit()
+
+    def test_write_returns_false_when_queue_full(self):
+        """write() returns False and logs a warning when the queue is full."""
+        import queue as queue_module
+        dev = HidDevice("/nonexistent/hidg_test")
+        # Fill the queue past its capacity
+        for _ in range(dev._QUEUE_SIZE + 5):
+            try:
+                dev._queue.put_nowait(b"\x00")
+            except queue_module.Full:
+                break
+        result = dev.write(b"\xff" * 8)
+        assert result is False
+        dev.deinit()
+
+    def test_deinit_stops_sender_thread(self):
+        """deinit() must stop the background thread within the join timeout."""
+        dev = HidDevice("/nonexistent/hidg_test")
+        assert dev._thread.is_alive()
+        dev.deinit()
+        dev._thread.join(timeout=1.0)
+        assert not dev._thread.is_alive()
+
+    def test_sender_thread_is_daemon(self):
+        """Sender thread must be a daemon so it does not block process exit."""
+        dev = HidDevice("/nonexistent/hidg_test")
+        assert dev._thread.daemon is True
+        dev.deinit()
+
+    def test_deinit_is_idempotent(self):
+        """Calling deinit() twice must not raise."""
+        dev = HidDevice("/nonexistent/hidg_test")
+        dev.deinit()
+        dev.deinit()  # Should not raise
 
 
 class TestModifierBit:

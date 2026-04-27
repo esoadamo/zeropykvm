@@ -10,7 +10,9 @@ Reference: https://github.com/stjeong/rasp_vusb
 import errno as errno_mod
 import logging
 import os
+import queue as queue_module
 import struct
+import threading
 import time
 from dataclasses import dataclass
 
@@ -241,17 +243,39 @@ class HidDevice:
     """Common HID device structure with lifecycle management.
 
     Handles open/write/reconnect logic for both keyboard and mouse.
+
+    All writes are delivered asynchronously via a background sender thread so
+    that the WebSocket handler thread is never blocked by HID back-pressure.
+    Transient ``BlockingIOError`` (HID gadget queue full) is retried for up to
+    ``_WRITE_TIMEOUT_S`` seconds — typically one USB polling interval (1–8 ms)
+    suffices.  The write is never silently dropped due to a backoff timer, which
+    was the cause of missing keyup events and stuck key repeats.
     """
 
-    BACKOFF_MS = 100
     RECONNECT_INTERVAL_MS = 1000
+    # Size of the in-process send queue.  At human typing speed this will
+    # never fill, but we cap it to avoid unbounded memory growth if the USB
+    # host is disconnected for a long time.
+    _QUEUE_SIZE = 256
+    # How long to wait between BlockingIOError retries (one USB poll interval).
+    _WRITE_RETRY_S = 0.001   # 1 ms
+    # Maximum total time to spend retrying a single write before dropping it.
+    _WRITE_TIMEOUT_S = 0.050  # 50 ms
 
     def __init__(self, device_path: str):
         self.device_path = device_path
         self.file: int | None = None  # File descriptor
         self.disconnected = False
-        self.blocked_until_ns = 0
         self.last_error_ns = 0
+        self._stop = threading.Event()
+        self._queue: queue_module.Queue[bytes | None] = queue_module.Queue(
+            maxsize=self._QUEUE_SIZE)
+        self._thread = threading.Thread(
+            target=self._sender_loop,
+            name=f"hid-sender-{device_path}",
+            daemon=True,
+        )
+        self._thread.start()
 
     def open(self) -> None:
         """Open the HID device for writing.
@@ -276,53 +300,79 @@ class HidDevice:
             self.file = None
 
     def write(self, report: bytes) -> bool:
-        """Write report to HID device with lifecycle handling.
+        """Enqueue a HID report for asynchronous delivery.
 
-        Args:
-            report: HID report bytes to send.
-
-        Returns:
-            True if write succeeded, False otherwise.
+        Returns True if the report was enqueued, False if the queue is full.
+        The actual write happens on the background sender thread.
         """
-        now = time.monotonic_ns()
-
-        # Check backoff first
-        if now < self.blocked_until_ns:
+        try:
+            self._queue.put_nowait(report)
+            return True
+        except queue_module.Full:
+            logger.warning("HID %s: send queue full, dropping report",
+                           self.device_path)
             return False
 
-        # Check if USB is actually connected before attempting write
-        state = _read_udc_state()
-        if state != "configured":
-            self.blocked_until_ns = now + self.RECONNECT_INTERVAL_MS * 1_000_000
-            return False
+    # ------------------------------------------------------------------
+    # Background sender thread
+    # ------------------------------------------------------------------
 
-        # If disconnected, try to reconnect
-        if self.disconnected:
-            if not self._try_reconnect():
-                self.blocked_until_ns = now + self.RECONNECT_INTERVAL_MS * 1_000_000
-                return False
+    def _sender_loop(self) -> None:
+        """Background thread: drain the queue and write to the HID device."""
+        while not self._stop.is_set():
+            try:
+                report = self._queue.get(timeout=0.1)
+            except queue_module.Empty:
+                continue
+            if report is None:  # Sentinel: shut down
+                break
+            self._deliver(report)
+
+    def _deliver(self, report: bytes) -> None:
+        """Write one report, retrying on transient BlockingIOError.
+
+        Drops the report if:
+        - USB is not in the "configured" state (host not connected).
+        - The retry deadline is exceeded.
+        - A non-transient OS error occurs.
+        """
+        # Quick check: USB must be fully enumerated before we try to write.
+        if _read_udc_state() != "configured":
+            return
+
+        # Reconnect if needed (e.g. after a USB cable re-plug).
+        if self.disconnected and not self._try_reconnect():
+            return
 
         if self.file is None:
-            return False
+            return
 
-        try:
-            os.write(self.file, report)
-            return True
-        except BlockingIOError:
-            # Queue full, apply backoff but stay connected
-            self.blocked_until_ns = now + self.BACKOFF_MS * 1_000_000
-            return False
-        except OSError as e:
-            self._handle_write_error(e, now)
-            return False
+        deadline = time.monotonic() + self._WRITE_TIMEOUT_S
+        while not self._stop.is_set():
+            try:
+                os.write(self.file, report)
+                return  # Success
+            except BlockingIOError:
+                # HID gadget kernel buffer full: wait one polling interval.
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "HID %s: write timed out after %dms — dropping report",
+                        self.device_path, int(self._WRITE_TIMEOUT_S * 1000))
+                    return
+                time.sleep(self._WRITE_RETRY_S)
+            except OSError as e:
+                self._handle_write_error(e, time.monotonic_ns())
+                return
+
+    # ------------------------------------------------------------------
+    # Error / reconnect helpers (called from sender thread)
+    # ------------------------------------------------------------------
 
     def _handle_write_error(self, err: OSError, now: int) -> None:
         """Handle write errors with appropriate response."""
         if err.errno in (errno_mod.EBADF, errno_mod.EIO, errno_mod.EPIPE):
-            # Transport error - device disconnected
             self._mark_disconnected(now)
         else:
-            # Unknown error, treat as disconnect
             if now - self.last_error_ns >= self.RECONNECT_INTERVAL_MS * 1_000_000:
                 self.last_error_ns = now
                 logger.error("HID %s write error: %s, marking disconnected",
@@ -333,7 +383,6 @@ class HidDevice:
         """Mark device as disconnected."""
         self.close()
         self.disconnected = True
-        self.blocked_until_ns = now + self.RECONNECT_INTERVAL_MS * 1_000_000
 
     def _try_reconnect(self) -> bool:
         """Try to reconnect to the HID device."""
@@ -349,7 +398,14 @@ class HidDevice:
             return False
 
     def deinit(self) -> None:
-        """Clean up resources."""
+        """Stop the sender thread and clean up resources."""
+        self._stop.set()
+        # Unblock the thread if it is waiting on queue.get()
+        try:
+            self._queue.put_nowait(None)
+        except queue_module.Full:
+            pass
+        self._thread.join(timeout=2.0)
         self.close()
 
 
