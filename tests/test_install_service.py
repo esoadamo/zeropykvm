@@ -119,7 +119,8 @@ class TestInstallService:
                     enable=False,
                     start=False,
                 )
-            content = open(service_file).read()
+            with open(service_file) as f:
+                content = f.read()
             assert "[Unit]" in content
             assert "[Service]" in content
             assert "[Install]" in content
@@ -136,7 +137,8 @@ class TestInstallService:
                     enable=False,
                     start=False,
                 )
-            content = open(service_file).read()
+            with open(service_file) as f:
+                content = f.read()
             assert "User=testuser" in content
 
     def test_service_file_contains_port(self):
@@ -151,7 +153,8 @@ class TestInstallService:
                     enable=False,
                     start=False,
                 )
-            content = open(service_file).read()
+            with open(service_file) as f:
+                content = f.read()
             assert "--port 9443" in content
 
     def test_generates_tls_cert_when_missing(self):
@@ -186,8 +189,10 @@ class TestInstallService:
                     enable=False,
                     start=False,
                 )
-            assert open(cert_path).read() == "existing cert"
-            assert open(key_path).read() == "existing key"
+            with open(cert_path) as f:
+                assert f.read() == "existing cert"
+            with open(key_path) as f:
+                assert f.read() == "existing key"
 
     def test_calls_daemon_reload(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -293,7 +298,8 @@ class TestInstallServiceMain:
             data_dir, service_file = self._run_main(
                 ["--port", "9000", "--no-enable", "--no-start"], tmpdir
             )
-            content = open(service_file).read()
+            with open(service_file) as f:
+                content = f.read()
             assert "--port 9000" in content
 
     def test_main_help_exits_zero(self):

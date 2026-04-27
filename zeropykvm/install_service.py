@@ -90,7 +90,7 @@ def install_service(
         service_file: Path where the systemd unit file is written.
     """
     # Create data directory
-    os.makedirs(data_dir, mode=0o750, exist_ok=True)
+    os.makedirs(data_dir, mode=0o755, exist_ok=True)
     print(f"Data directory: {data_dir}")
 
     # Generate TLS certificate if not present
@@ -113,6 +113,7 @@ def install_service(
     )
     with open(service_file, "w") as f:
         f.write(unit_content)
+    os.chmod(service_file, 0o644)
     print(f"Systemd unit file written: {service_file}")
 
     # Reload systemd daemon
