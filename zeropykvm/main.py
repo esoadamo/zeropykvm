@@ -54,6 +54,11 @@ def main():
         from .gencert import main as _gencert_main
         _gencert_main()
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "install-service":
+        sys.argv = [sys.argv[0] + " install-service"] + sys.argv[2:]
+        from .install_service import main as _install_service_main
+        _install_service_main()
+        return
     global _g_display, _g_hid_keyboard, _g_hid_mouse
 
     # Configure logging

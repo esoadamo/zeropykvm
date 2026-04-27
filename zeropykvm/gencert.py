@@ -110,7 +110,8 @@ def generate_cert(
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
     fingerprint = cert.fingerprint(hashes.SHA256()).hex(":")
-    expiry = cert.not_valid_after_utc.strftime("%Y-%m-%d")
+    _not_after = getattr(cert, "not_valid_after_utc", None) or cert.not_valid_after
+    expiry = _not_after.strftime("%Y-%m-%d")
     san_strs = []
     for entry in unique_san:
         if isinstance(entry, x509.DNSName):

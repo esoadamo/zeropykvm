@@ -1,0 +1,30 @@
+# podman-compose.yml – launch zeropykvm in a Podman container
+#
+# Usage:
+#   podman-compose up -d
+#
+# The container runs as the www-data user (uid 33) and stores
+# TLS certificates and configuration in /etc/zeropykvm/ on the host.
+
+version: "3.9"
+
+services:
+  zeropykvm:
+    image: docker.io/esoadamo/zeropykvm:latest
+    container_name: zeropykvm
+    restart: unless-stopped
+    user: "33:33"  # www-data
+    ports:
+      - "8443:8443"
+    volumes:
+      - /etc/zeropykvm:/etc/zeropykvm:z
+    command:
+      - "--cert"
+      - "/etc/zeropykvm/cert.pem"
+      - "--key"
+      - "/etc/zeropykvm/key.pem"
+      - "--no-epaper"
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/video11:/dev/video11
+      - /dev/v4l-subdev0:/dev/v4l-subdev0
