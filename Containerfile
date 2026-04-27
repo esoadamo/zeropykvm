@@ -10,8 +10,8 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 # application user that belongs to it so the container can access
 # /dev/video* devices when the host group GID matches.
 RUN groupadd --gid 44 video 2>/dev/null || true && \
-    useradd --system --create-home --home-dir /app \
-            --user-group --gid 44 \
+    useradd --no-log-init --system --create-home --home-dir /app \
+            --gid 44 \
             --uid 1000 pyzerokvm
 
 WORKDIR /app
@@ -24,8 +24,12 @@ COPY --chown=pyzerokvm:video . .
 RUN mkdir -p zeropykvm/static && \
     cp web/dist.tar zeropykvm/static/dist.tar
 
-# Install the application using uv (no editable install – clean production image)
-RUN uv pip install --system --no-cache .
+# Install the application and its dependencies using uv from the lockfile
+# (reproducible, no pip resolver at build time).
+RUN uv sync --frozen --no-dev --no-cache
+
+# Put the venv on PATH so ENTRYPOINT can find the zeropykvm script.
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Data directory – mount a host volume here to persist certs/config
 VOLUME ["/etc/zeropykvm"]
