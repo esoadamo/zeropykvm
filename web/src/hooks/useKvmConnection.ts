@@ -4,14 +4,15 @@ export interface ConnectionStats {
   frameCount: number;
   totalBytes: number;
   startTime: number;
+  rtt: number | null;
 }
 
 function getWebSocketUrl(): string {
-  // WebSocket uses the same port as HTTP
+  // Use the same host (including port) as the current page so that reverse
+  // proxies forwarding on a non-default port are handled correctly.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname || '127.0.0.1';
-  const port = window.location.port || '8443';
-  return `${protocol}//${host}:${port}`;
+  const host = window.location.host || '127.0.0.1';
+  return `${protocol}//${host}`;
 }
 
 function formatBytes(bytes: number): string {
@@ -45,10 +46,12 @@ export function useKvmConnection({
     frameCount: 0,
     totalBytes: 0,
     startTime: 0,
+    rtt: null,
   });
 
   const wsRef = useRef<WebSocket | null>(null);
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const connect = useCallback(async () => {
     if (wsRef.current) {
@@ -56,7 +59,7 @@ export function useKvmConnection({
       return;
     }
 
-    setStats({ frameCount: 0, totalBytes: 0, startTime: Date.now() });
+    setStats({ frameCount: 0, totalBytes: 0, startTime: Date.now(), rtt: null });
 
     const url = getWebSocketUrl();
     log(`Dialing ${url}...`);
@@ -76,6 +79,13 @@ export function useKvmConnection({
         statsIntervalRef.current = setInterval(() => {
           setStats((prev) => ({ ...prev })); // Trigger re-render for time display
         }, 1000);
+
+        // Start periodic RTT ping
+        pingIntervalRef.current = setInterval(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'ping', ts: performance.now() }));
+          }
+        }, 2000);
       };
 
       // Stats tracking
@@ -84,6 +94,20 @@ export function useKvmConnection({
       const STALL_THRESHOLD_MS = 50; // Warn if packet gap > 50ms
 
       ws.onmessage = (event) => {
+        // Handle text messages (pong replies)
+        if (typeof event.data === 'string') {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'pong' && typeof msg.ts === 'number') {
+              const rtt = Math.round(performance.now() - msg.ts);
+              setStats((prev) => ({ ...prev, rtt }));
+            }
+          } catch {
+            // ignore malformed text frames
+          }
+          return;
+        }
+
         const now = performance.now();
         const packet = new Uint8Array(event.data);
 
@@ -118,6 +142,10 @@ export function useKvmConnection({
           clearInterval(statsIntervalRef.current);
           statsIntervalRef.current = null;
         }
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
         onDisconnect?.();
       };
 
@@ -139,6 +167,11 @@ export function useKvmConnection({
     if (statsIntervalRef.current) {
       clearInterval(statsIntervalRef.current);
       statsIntervalRef.current = null;
+    }
+
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
     }
 
     setIsConnected(false);

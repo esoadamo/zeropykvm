@@ -44,6 +44,7 @@ The Python rewrite mirrors the original Zig project's architecture:
 | `https_server.py` | HTTPS/TLS server with WebSocket upgrade |
 | `video.py` | Zero-copy video pipeline orchestration |
 | `gencert.py` | Self-signed certificate generator (`zeropykvm gencrt` subcommand) |
+| `install_service.py` | Systemd service installer (`zeropykvm install-service` subcommand) |
 | `main.py` | Main entry point |
 
 ## Requirements
@@ -95,7 +96,28 @@ zeropykvm --cert cert.pem --key key.pem
 zeropykvm --cert cert.pem --key key.pem --port 443 --bitrate 2000000
 ```
 
-Then open `https://<pi-ip>:8443/` in a browser and accept the self-signed certificate.
+Then open `https://<pi-ip>:8443/` in a browser (or whatever port you chose) and accept the self-signed certificate.
+
+### Systemd service
+
+`zeropykvm install-service` automates the full setup on a Raspberry Pi OS host:
+- creates `/etc/zeropykvm/` (mode `0755`)
+- generates a self-signed TLS certificate there if one does not already exist
+- writes `/etc/systemd/system/zeropykvm.service` and runs `daemon-reload` → `enable` → `start`
+
+```bash
+# Install with defaults (port 8443, data dir /etc/zeropykvm) — runs as root
+sudo zeropykvm install-service
+
+# Custom port and data directory
+sudo zeropykvm install-service --port 443 --data-dir /opt/zeropykvm
+
+# Install without starting the service immediately
+sudo zeropykvm install-service --no-start
+
+# Full option list
+zeropykvm install-service --help
+```
 
 ## Testing
 

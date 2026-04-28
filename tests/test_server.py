@@ -33,6 +33,15 @@ class TestServer:
         server = Server(MockKeyboard(), MockMouse())
         assert len(server.clients) == 0
 
+    def test_skip_frames_requested_is_event(self):
+        import threading
+        server = Server(MockKeyboard(), MockMouse())
+        assert isinstance(server.skip_frames_requested, threading.Event)
+
+    def test_skip_frames_requested_initially_clear(self):
+        server = Server(MockKeyboard(), MockMouse())
+        assert not server.skip_frames_requested.is_set()
+
     def test_add_client(self):
         server = Server(MockKeyboard(), MockMouse())
         ws = MockWebSocket()
@@ -120,6 +129,15 @@ class TestServer:
 
         assert len(errors) == 0
         assert len(server.clients) == 400
+
+    def test_input_event_pending_is_event(self):
+        import threading
+        server = Server(MockKeyboard(), MockMouse())
+        assert isinstance(server.input_event_pending, threading.Event)
+
+    def test_input_event_pending_initially_clear(self):
+        server = Server(MockKeyboard(), MockMouse())
+        assert not server.input_event_pending.is_set()
 
     def test_deinit(self):
         server = Server(MockKeyboard(), MockMouse())

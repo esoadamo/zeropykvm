@@ -7,6 +7,7 @@ Usage:
 import argparse
 import datetime
 import ipaddress
+import os
 import socket
 import sys
 
@@ -95,22 +96,23 @@ def generate_cert(
         .sign(private_key, hashes.SHA256())
     )
 
-    # Write private key (PEM, unencrypted)
-    with open(key_path, "wb") as f:
-        f.write(
-            private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-        )
+    # Write private key (PEM, unencrypted) with mode 600 from creation
+    key_bytes = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    fd = os.open(key_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(key_bytes)
 
     # Write certificate (PEM)
     with open(cert_path, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
     fingerprint = cert.fingerprint(hashes.SHA256()).hex(":")
-    expiry = cert.not_valid_after_utc.strftime("%Y-%m-%d")
+    _not_after = getattr(cert, "not_valid_after_utc", None) or cert.not_valid_after
+    expiry = _not_after.strftime("%Y-%m-%d")
     san_strs = []
     for entry in unique_san:
         if isinstance(entry, x509.DNSName):

@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 NUM_BUFFERS = 6
 
+# Hard floor: even during aggressive frame-skip never go below this rate so
+# the display does not freeze entirely and the user can see their input.
+_SKIP_FLOOR_FPS = 5
+_SKIP_FLOOR_INTERVAL_NS = 1_000_000_000 // _SKIP_FLOOR_FPS
+
 
 def _probe_format(device: str, subdev: str) -> dict:
     """Probe the capture device for current format after applying fresh DV timings.
@@ -177,6 +182,7 @@ def _run_session(server: Server, capture_device: str,
                     KEYFRAME_INTERVAL = 50
                     frame_counter = 0
                     timeout_count = 0
+                    last_sent_ns = 0
                     while True:
                         try:
                             cap_result = cap.dequeue_buffer(2000)
@@ -193,6 +199,37 @@ def _run_session(server: Server, capture_device: str,
                             break
 
                         timeout_count = 0
+
+                        now_ns = time.monotonic_ns()
+
+                        # Skip frame if the client has signalled it is behind.
+                        # Use the client-requested target FPS to derive how
+                        # aggressively to skip; always allow at least one frame
+                        # per _SKIP_FLOOR_INTERVAL_NS so the display never
+                        # freezes completely.
+                        # Exception: if the user pressed a key or clicked, bypass
+                        # the timer once so their action produces immediate visual
+                        # feedback.
+                        if server.skip_frames_requested.is_set():
+                            skip_fps = server.get_skip_fps()
+                            if skip_fps > 0:
+                                skip_interval_ns = min(
+                                    1_000_000_000 // skip_fps,
+                                    _SKIP_FLOOR_INTERVAL_NS,
+                                )
+                            else:
+                                skip_interval_ns = _SKIP_FLOOR_INTERVAL_NS
+                            if (now_ns - last_sent_ns) < skip_interval_ns:
+                                if server.input_event_pending.is_set():
+                                    # User input: fall through to encode and send
+                                    server.input_event_pending.clear()
+                                else:
+                                    try:
+                                        cap.queue_buffer(cap_result.index)
+                                    except OSError as qerr:
+                                        logger.warning(
+                                            "Failed to re-queue skipped frame: %s", qerr)
+                                    continue
 
                         # Force a keyframe periodically or when a client just connected
                         if (frame_counter % KEYFRAME_INTERVAL == 0
@@ -224,6 +261,8 @@ def _run_session(server: Server, capture_device: str,
                         except Exception as e:
                             logger.error("Broadcast error: %s", e)
                             continue
+
+                        last_sent_ns = now_ns
 
                         # Cache keyframes (containing IDR) for late-joining clients
                         if _contains_nal_type(enc_result.data, 5):  # IDR = 5

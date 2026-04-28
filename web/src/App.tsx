@@ -1,20 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './index.css';
-import { useLogger, useVideoDecoder, useKvmConnection, useHidInput } from './hooks';
+import { useLogger, useVideoDecoder, useKvmConnection, useHidInput, useLocalStorage } from './hooks';
 
 function App() {
   const { logs, log } = useLogger();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const decoder = useVideoDecoder(log, canvasRef, videoRef);
+
+  // Stable ref to connection.send; updated each render so the backlog callback
+  // (which is created once) always picks up the live send function.
+  const sendRef = useRef<((data: string) => void) | undefined>(undefined);
+
+  // Stable callback: fires when the decoder backlog state changes and sends
+  // a frameskip/resume message to the server over the WebSocket.
+  const handleBacklogChange = useCallback((targetFps: number) => {
+    sendRef.current?.(JSON.stringify({ type: 'frameskip', skip: targetFps > 0, fps: targetFps }));
+  }, []);
+
+  const decoder = useVideoDecoder(log, canvasRef, videoRef, handleBacklogChange);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [localCursor, setLocalCursor] = useState(false);
-  const [invertScroll, setInvertScroll] = useState(false);
-  const [brightness, setBrightness] = useState(120);
-  const [contrast, setContrast] = useState(120);
-  const [saturate, setSaturate] = useState(100);
-  const [crtOpacity, setCrtOpacity] = useState(60);
+  const [localCursor, setLocalCursor] = useLocalStorage('localCursor', true);
+  const [invertScroll, setInvertScroll] = useLocalStorage('invertScroll', false);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [brightness, setBrightness] = useLocalStorage('brightness', 120);
+  const [contrast, setContrast] = useLocalStorage('contrast', 120);
+  const [saturate, setSaturate] = useLocalStorage('saturate', 100);
+  const [crtOpacity, setCrtOpacity] = useLocalStorage('crtOpacity', 60);
   const [sigLedOn, setSigLedOn] = useState(true);
   const [elapsedTime, setElapsedTime] = useState(0);
 
@@ -52,6 +64,10 @@ function App() {
     onDisconnect: handleDisconnect,
     onData: handleData,
   });
+
+  // Keep sendRef pointing at the live send function so the stable
+  // handleBacklogChange callback can always reach it.
+  sendRef.current = connection.send;
 
   const hidInput = useHidInput({
     send: connection.send,
@@ -98,8 +114,10 @@ function App() {
   // Global fullscreenchange handler
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-      if (!document.fullscreenElement) {
+      const inFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(inFullscreen);
+      if (!inFullscreen) {
+        setIsMaximized(false);
         log('Exited Fullscreen Mode.');
       }
     };
@@ -107,6 +125,39 @@ function App() {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [log]);
+
+  // Triple-ESC to exit maximized mode (when not in real fullscreen)
+  const escCountRef = useRef(0);
+  const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMaximizedRef = useRef(isMaximized);
+  const isFullscreenRef = useRef(isFullscreen);
+  isMaximizedRef.current = isMaximized;
+  isFullscreenRef.current = isFullscreen;
+
+  useEffect(() => {
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') {
+        escCountRef.current = 0;
+        return;
+      }
+      if (!isMaximizedRef.current || isFullscreenRef.current) {
+        escCountRef.current = 0;
+        return;
+      }
+      escCountRef.current += 1;
+      if (escTimerRef.current) clearTimeout(escTimerRef.current);
+      escTimerRef.current = setTimeout(() => {
+        escCountRef.current = 0;
+      }, 1500);
+      if (escCountRef.current >= 3) {
+        escCountRef.current = 0;
+        setIsMaximized(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscKey);
+    return () => document.removeEventListener('keydown', handleEscKey);
+  }, []);
 
   const handlePowerClick = async () => {
     if (connection.isConnected) {
@@ -125,6 +176,7 @@ function App() {
         log(`Error attempting to enable fullscreen: ${err.message}`, 'error');
       });
       setIsFullscreen(true);
+      setIsMaximized(true);
       screenContainerRef.current?.focus();
       log('Entered Fullscreen Mode. Press ESC to exit.', 'success');
     } else {
@@ -142,7 +194,7 @@ function App() {
           <div className="monitor-bezel-inner">
             <div
               ref={screenContainerRef}
-              className={`screen-container ${isFullscreen ? 'fake-fullscreen' : ''} ${localCursor ? 'local-cursor-active' : ''}`}
+              className={`screen-container ${(isFullscreen || isMaximized) ? 'fake-fullscreen' : ''} ${localCursor ? 'local-cursor-active' : ''}`}
               tabIndex={0}
             >
               {/* CRT Effects */}
@@ -232,6 +284,12 @@ function App() {
               <span className="lcd-value">{connection.formatBytes(connection.stats.totalBytes)}</span>
             </div>
             <div className="lcd-row">
+              <span>RTT:</span>
+              <span className="lcd-value">
+                {connection.stats.rtt !== null ? `${connection.stats.rtt}ms` : '--'}
+              </span>
+            </div>
+            <div className="lcd-row">
               <span>TIME:</span>
               <span className="lcd-value">
                 {connection.formatTime(elapsedTime)}
@@ -252,6 +310,14 @@ function App() {
               onChange={(e) => setLocalCursor(e.target.checked)}
             />
             <span>Local Cursor</span>
+          </label>
+          <label className="checkbox-row" style={{ marginTop: '6px' }}>
+            <input
+              type="checkbox"
+              checked={isMaximized}
+              onChange={(e) => setIsMaximized(e.target.checked)}
+            />
+            <span>Maximized</span>
           </label>
           <label className="checkbox-row" style={{ marginTop: '6px' }}>
             <input

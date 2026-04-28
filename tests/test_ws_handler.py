@@ -34,12 +34,36 @@ class MockMouse:
         self.events.append(("wheel", delta))
 
 
+class MockWebSocket:
+    """Mock WebSocket for testing."""
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, data):
+        self.sent.append(data)
+
+
 class MockServer:
     """Mock server with keyboard and mouse."""
 
     def __init__(self):
+        import threading
         self.keyboard = MockKeyboard()
         self.mouse = MockMouse()
+        self.skip_frames_requested = threading.Event()
+        self.skip_target_fps: int = 0
+        self.input_event_pending = threading.Event()
+
+    def set_skip(self, fps: int) -> None:
+        self.skip_target_fps = fps
+        if fps > 0:
+            self.skip_frames_requested.set()
+        else:
+            self.skip_frames_requested.clear()
+
+    def get_skip_fps(self) -> int:
+        return self.skip_target_fps
 
 
 class TestHandleKeyboardEvents:
@@ -53,12 +77,36 @@ class TestHandleKeyboardEvents:
             "code": "KeyA",
             "modifiers": {"ctrl": False, "alt": False, "shift": False, "meta": False},
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 1
         event_type, code, mods = server.keyboard.events[0]
         assert event_type == "keydown"
         assert code == "KeyA"
         assert not mods.ctrl
+
+    def test_keydown_sets_input_event_pending(self):
+        """keydown must set input_event_pending so the video thread sends a frame."""
+        server = MockServer()
+        msg = json.dumps({
+            "type": "keyboard",
+            "event": "keydown",
+            "code": "KeyA",
+            "modifiers": {},
+        })
+        handle_message(server, MockWebSocket(), msg)
+        assert server.input_event_pending.is_set()
+
+    def test_keyup_does_not_set_input_event_pending(self):
+        """keyup alone should NOT set input_event_pending (no new visual change)."""
+        server = MockServer()
+        msg = json.dumps({
+            "type": "keyboard",
+            "event": "keyup",
+            "code": "KeyA",
+            "modifiers": {},
+        })
+        handle_message(server, MockWebSocket(), msg)
+        assert not server.input_event_pending.is_set()
 
     def test_keyup(self):
         server = MockServer()
@@ -68,7 +116,7 @@ class TestHandleKeyboardEvents:
             "code": "KeyA",
             "modifiers": {"ctrl": False, "alt": False, "shift": False, "meta": False},
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 1
         assert server.keyboard.events[0][0] == "keyup"
 
@@ -80,7 +128,7 @@ class TestHandleKeyboardEvents:
             "code": "KeyC",
             "modifiers": {"ctrl": True, "alt": False, "shift": False, "meta": False},
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         _, _, mods = server.keyboard.events[0]
         assert mods.ctrl
         assert not mods.alt
@@ -94,7 +142,7 @@ class TestHandleKeyboardEvents:
             "code": "KeyA",
             "modifiers": {},
         }).encode()
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 1
 
 
@@ -109,7 +157,7 @@ class TestHandleMouseEvents:
             "x": 100,
             "y": 200,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.mouse.events) == 1
         assert server.mouse.events[0] == ("move", 100, 200)
 
@@ -120,7 +168,7 @@ class TestHandleMouseEvents:
             "event": "down",
             "button": 0,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("click", 0, True)
 
     def test_button_up(self):
@@ -130,8 +178,22 @@ class TestHandleMouseEvents:
             "event": "up",
             "button": 0,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("click", 0, False)
+
+    def test_button_down_sets_input_event_pending(self):
+        """Mouse button-down must set input_event_pending."""
+        server = MockServer()
+        msg = json.dumps({"type": "mouse", "event": "down", "button": 0})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.input_event_pending.is_set()
+
+    def test_mouse_move_does_not_set_input_event_pending(self):
+        """Mouse moves should NOT set input_event_pending (too frequent)."""
+        server = MockServer()
+        msg = json.dumps({"type": "mouse", "event": "move", "x": 100, "y": 200})
+        handle_message(server, MockWebSocket(), msg)
+        assert not server.input_event_pending.is_set()
 
     def test_wheel(self):
         server = MockServer()
@@ -140,7 +202,7 @@ class TestHandleMouseEvents:
             "event": "wheel",
             "delta": -3,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("wheel", -3)
 
     def test_wheel_clamped(self):
@@ -150,7 +212,7 @@ class TestHandleMouseEvents:
             "event": "wheel",
             "delta": 500,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("wheel", 127)
 
     def test_right_click(self):
@@ -160,7 +222,7 @@ class TestHandleMouseEvents:
             "event": "down",
             "button": 2,
         })
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert server.mouse.events[0] == ("click", 2, True)
 
 
@@ -169,28 +231,104 @@ class TestInvalidMessages:
 
     def test_invalid_json(self):
         server = MockServer()
-        handle_message(server, "not json")
+        handle_message(server, MockWebSocket(), "not json")
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
 
     def test_unknown_type(self):
         server = MockServer()
         msg = json.dumps({"type": "unknown"})
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
 
     def test_missing_type(self):
         server = MockServer()
         msg = json.dumps({"event": "keydown"})
-        handle_message(server, msg)
+        handle_message(server, MockWebSocket(), msg)
         # Should not crash: type defaults to None which doesn't match any handler
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0
 
     def test_empty_string(self):
         server = MockServer()
-        handle_message(server, "")
+        handle_message(server, MockWebSocket(), "")
         # Should not crash: empty string is invalid JSON, no events processed
+        assert len(server.keyboard.events) == 0
+        assert len(server.mouse.events) == 0
+
+
+class TestPingPong:
+    """Test ping/pong RTT handling."""
+
+    def test_ping_sends_pong(self):
+        server = MockServer()
+        ws = MockWebSocket()
+        msg = json.dumps({"type": "ping", "ts": 12345.678})
+        handle_message(server, ws, msg)
+        assert len(ws.sent) == 1
+        pong = json.loads(ws.sent[0])
+        assert pong["type"] == "pong"
+        assert pong["ts"] == 12345.678
+
+    def test_ping_no_keyboard_or_mouse_events(self):
+        server = MockServer()
+        ws = MockWebSocket()
+        msg = json.dumps({"type": "ping", "ts": 0})
+        handle_message(server, ws, msg)
+        assert len(server.keyboard.events) == 0
+        assert len(server.mouse.events) == 0
+
+
+class TestFrameSkip:
+    """Test frameskip message handling."""
+
+    def test_frameskip_true_sets_event(self):
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_frames_requested.is_set()
+        assert server.skip_target_fps > 0
+
+    def test_frameskip_true_uses_provided_fps(self):
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True, "fps": 3})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_frames_requested.is_set()
+        assert server.skip_target_fps == 3
+
+    def test_frameskip_true_default_fps(self):
+        """When no fps is given, default to 2."""
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_target_fps == 2
+
+    def test_frameskip_fps_minimum_one(self):
+        """fps should be clamped to at least 1."""
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True, "fps": 0})
+        handle_message(server, MockWebSocket(), msg)
+        assert server.skip_target_fps >= 1
+
+    def test_frameskip_false_clears_event(self):
+        server = MockServer()
+        server.set_skip(5)
+        msg = json.dumps({"type": "frameskip", "skip": False})
+        handle_message(server, MockWebSocket(), msg)
+        assert not server.skip_frames_requested.is_set()
+        assert server.skip_target_fps == 0
+
+    def test_frameskip_false_when_already_clear(self):
+        """Clearing an already-clear event should not raise."""
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": False})
+        handle_message(server, MockWebSocket(), msg)
+        assert not server.skip_frames_requested.is_set()
+
+    def test_frameskip_no_keyboard_or_mouse_events(self):
+        server = MockServer()
+        msg = json.dumps({"type": "frameskip", "skip": True})
+        handle_message(server, MockWebSocket(), msg)
         assert len(server.keyboard.events) == 0
         assert len(server.mouse.events) == 0

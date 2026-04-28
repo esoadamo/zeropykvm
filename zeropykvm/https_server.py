@@ -71,7 +71,7 @@ def _make_ws_handler(server: Server):
         server.add_client(websocket)
         try:
             for message in websocket:
-                ws_handler.handle_message(server, message)
+                ws_handler.handle_message(server, websocket, message)
         finally:
             server.remove_client(websocket)
 
