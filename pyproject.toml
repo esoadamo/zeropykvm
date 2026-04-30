@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zeropykvm"
-version = "0.2.0"
+version = "0.3.0"
 description = "A KVM-over-IP solution running on Raspberry Pi Zero 2 W, rewritten in Python"
 readme = "README.md"
 requires-python = ">=3.12"

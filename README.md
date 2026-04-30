@@ -10,6 +10,7 @@ A KVM-over-IP solution running on Raspberry Pi Zero 2 W — rewritten from [Zig]
 - **USB HID gadget**: Emulates USB keyboard and mouse via Linux ConfigFS, with Boot Protocol support for BIOS compatibility
 - **HTTPS + WebSocket**: Serves a web frontend over HTTPS with WebSocket for real-time video streaming and HID control
 - **E-Paper display**: Optional status display on Waveshare EPD 2in13 V4
+- **HDMI passthrough**: Optionally mirror the captured HDMI input to the RPi's own HDMI output via the Linux framebuffer
 
 ## Demo hardware
 
@@ -43,6 +44,7 @@ The Python rewrite mirrors the original Zig project's architecture:
 | `ws_handler.py` | WebSocket message handling (keyboard/mouse events) |
 | `https_server.py` | HTTPS/TLS server with WebSocket upgrade |
 | `video.py` | Zero-copy video pipeline orchestration |
+| `passthrough.py` | HDMI passthrough via Linux framebuffer (`/dev/fb0`) |
 | `gencert.py` | Self-signed certificate generator (`zeropykvm gencrt` subcommand) |
 | `install_service.py` | Systemd service installer (`zeropykvm install-service` subcommand) |
 | `main.py` | Main entry point |
@@ -94,9 +96,27 @@ zeropykvm --cert cert.pem --key key.pem
 
 # With custom settings
 zeropykvm --cert cert.pem --key key.pem --port 443 --bitrate 2000000
+
+# Enable HDMI passthrough (mirror input to the RPi HDMI output)
+zeropykvm --cert cert.pem --key key.pem --hdmi-passthrough
+
+# Use an alternate framebuffer device
+zeropykvm --cert cert.pem --key key.pem --hdmi-passthrough --hdmi-passthrough-device /dev/fb1
 ```
 
 Then open `https://<pi-ip>:8443/` in a browser (or whatever port you chose) and accept the self-signed certificate.
+
+### HDMI passthrough
+
+When `--hdmi-passthrough` is given, each captured frame is also written to the Linux framebuffer device (default `/dev/fb0`).
+This lets a locally-connected HDMI monitor display the source content in real time while the stream is simultaneously encoded and served over the network.
+
+Supported framebuffer colour depths: **16-bit (RGB565)** and **32-bit (ARGB8888)**.
+Supported capture pixel formats: **YUYV** and **UYVY** (both produced by the TC358743).
+
+> **Performance note:** The YUV → RGB colour conversion is done in software.
+> At 1080p this is CPU-intensive and may limit the effective frame rate.
+> 720p or lower resolutions work more smoothly on a Pi Zero 2 W.
 
 ### Systemd service
 

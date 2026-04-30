@@ -6,6 +6,7 @@ Reference: https://www.kernel.org/doc/html/latest/userspace-api/dma-buf-alloc-ex
 
 import ctypes
 import logging
+import mmap
 import os
 import time
 
@@ -14,6 +15,7 @@ from .capture import Capture
 from .dma import DmaBuffer, DmaHeap
 from .edid import SignalInfo, wait_for_signal
 from .encode import Encoder, EncoderConfig
+from .passthrough import HdmiPassthrough
 from .server import Server, _contains_nal_type
 from .utils import fourcc_to_string, ioctl_raw
 
@@ -102,7 +104,8 @@ def _probe_format(device: str, subdev: str) -> dict:
 def _run_session(server: Server, capture_device: str,
                  encoder_device: str, bitrate: int,
                  first_run: bool, signal_info: SignalInfo,
-                 subdev: str) -> None:
+                 subdev: str,
+                 passthrough: HdmiPassthrough | None = None) -> None:
     """Run a single capture/encode session.
 
     Args:
@@ -113,6 +116,8 @@ def _run_session(server: Server, capture_device: str,
         first_run: Whether this is the first session.
         signal_info: HDMI signal dimensions from DV timings.
         subdev: Path to V4L2 subdevice for fresh DV timings queries.
+        passthrough: Optional HdmiPassthrough instance; when provided each
+                     captured frame is also written to the framebuffer.
 
     Raises:
         Various exceptions on failure.
@@ -177,96 +182,138 @@ def _run_session(server: Server, capture_device: str,
                 try:
                     logger.info("Zero-copy pipeline ready, starting capture loop...")
 
-                    # Force a keyframe every ~2 seconds so late-joining clients
-                    # don't wait long, and also on demand when a client connects.
-                    KEYFRAME_INTERVAL = 50
-                    frame_counter = 0
-                    timeout_count = 0
-                    last_sent_ns = 0
-                    while True:
-                        try:
-                            cap_result = cap.dequeue_buffer(2000)
-                        except TimeoutError:
-                            timeout_count += 1
-                            if timeout_count >= 3:
-                                logger.warning("Too many capture timeouts, exiting session")
-                                break
-                            continue
-                        except OSError as e:
-                            logger.error("Capture dequeue error: %s", e)
-                            if first_run:
-                                raise
-                            break
+                    # Pre-mmap DMA buffers for passthrough reads.
+                    # We read from these after DQBUF (when the driver has
+                    # transferred ownership back to userspace) and before
+                    # QBUF to the encoder, so there is no data race.
+                    dma_mmaps: list[mmap.mmap] = []
+                    if passthrough is not None:
+                        for buf in dma_buffers:
+                            dm = mmap.mmap(
+                                buf.fd, buf.size,
+                                mmap.MAP_SHARED, mmap.PROT_READ,
+                            )
+                            dma_mmaps.append(dm)
 
+                    try:
+                        # Force a keyframe every ~2 seconds so late-joining clients
+                        # don't wait long, and also on demand when a client connects.
+                        KEYFRAME_INTERVAL = 50
+                        frame_counter = 0
                         timeout_count = 0
-
-                        now_ns = time.monotonic_ns()
-
-                        # Skip frame if the client has signalled it is behind.
-                        # Use the client-requested target FPS to derive how
-                        # aggressively to skip; always allow at least one frame
-                        # per _SKIP_FLOOR_INTERVAL_NS so the display never
-                        # freezes completely.
-                        # Exception: if the user pressed a key or clicked, bypass
-                        # the timer once so their action produces immediate visual
-                        # feedback.
-                        if server.skip_frames_requested.is_set():
-                            skip_fps = server.get_skip_fps()
-                            if skip_fps > 0:
-                                skip_interval_ns = min(
-                                    1_000_000_000 // skip_fps,
-                                    _SKIP_FLOOR_INTERVAL_NS,
-                                )
-                            else:
-                                skip_interval_ns = _SKIP_FLOOR_INTERVAL_NS
-                            if (now_ns - last_sent_ns) < skip_interval_ns:
-                                if server.input_event_pending.is_set():
-                                    # User input: fall through to encode and send
-                                    server.input_event_pending.clear()
-                                else:
-                                    try:
-                                        cap.queue_buffer(cap_result.index)
-                                    except OSError as qerr:
-                                        logger.warning(
-                                            "Failed to re-queue skipped frame: %s", qerr)
-                                    continue
-
-                        # Force a keyframe periodically or when a client just connected
-                        if (frame_counter % KEYFRAME_INTERVAL == 0
-                                or server.keyframe_requested.is_set()):
-                            enc.force_key_frame()
-                            server.keyframe_requested.clear()
-                        frame_counter += 1
-
-                        try:
-                            enc_result = enc.encode_from_buffer(
-                                cap_result.index, cap_result.bytesused)
-                        except Exception as e:
-                            logger.error("Encode error: %s", e)
+                        last_sent_ns = 0
+                        while True:
                             try:
-                                cap.queue_buffer(cap_result.index)
-                            except OSError as qerr:
-                                logger.error("Failed to re-queue capture buffer: %s", qerr)
-                            continue
-
-                        if enc_result.reclaimed_idx is not None:
-                            try:
-                                cap.queue_buffer(enc_result.reclaimed_idx)
+                                cap_result = cap.dequeue_buffer(2000)
+                            except TimeoutError:
+                                timeout_count += 1
+                                if timeout_count >= 3:
+                                    logger.warning("Too many capture timeouts, exiting session")
+                                    break
+                                continue
                             except OSError as e:
-                                logger.error("Failed to re-queue buffer %d: %s",
-                                             enc_result.reclaimed_idx, e)
+                                logger.error("Capture dequeue error: %s", e)
+                                if first_run:
+                                    raise
+                                break
 
-                        try:
-                            server.broadcast(enc_result.data)
-                        except Exception as e:
-                            logger.error("Broadcast error: %s", e)
-                            continue
+                            timeout_count = 0
 
-                        last_sent_ns = now_ns
+                            now_ns = time.monotonic_ns()
 
-                        # Cache keyframes (containing IDR) for late-joining clients
-                        if _contains_nal_type(enc_result.data, 5):  # IDR = 5
-                            server.update_keyframe(enc_result.data)
+                            # Skip frame if the client has signalled it is behind.
+                            # Use the client-requested target FPS to derive how
+                            # aggressively to skip; always allow at least one frame
+                            # per _SKIP_FLOOR_INTERVAL_NS so the display never
+                            # freezes completely.
+                            # Exception: if the user pressed a key or clicked, bypass
+                            # the timer once so their action produces immediate visual
+                            # feedback.
+                            if server.skip_frames_requested.is_set():
+                                skip_fps = server.get_skip_fps()
+                                if skip_fps > 0:
+                                    skip_interval_ns = min(
+                                        1_000_000_000 // skip_fps,
+                                        _SKIP_FLOOR_INTERVAL_NS,
+                                    )
+                                else:
+                                    skip_interval_ns = _SKIP_FLOOR_INTERVAL_NS
+                                if (now_ns - last_sent_ns) < skip_interval_ns:
+                                    if server.input_event_pending.is_set():
+                                        # User input: fall through to encode and send
+                                        server.input_event_pending.clear()
+                                    else:
+                                        try:
+                                            cap.queue_buffer(cap_result.index)
+                                        except OSError as qerr:
+                                            logger.warning(
+                                                "Failed to re-queue skipped frame: %s", qerr)
+                                        continue
+
+                            # HDMI passthrough: write the raw captured frame to the
+                            # local framebuffer before handing the buffer to the encoder.
+                            if passthrough is not None and dma_mmaps:
+                                dm = dma_mmaps[cap_result.index]
+                                dma_buffers[cap_result.index].sync_start(v4l2.DMA_BUF_SYNC_READ)
+                                try:
+                                    dm.seek(0)
+                                    frame_bytes = dm.read(cap_result.bytesused)
+                                finally:
+                                    dma_buffers[cap_result.index].sync_end(v4l2.DMA_BUF_SYNC_READ)
+                                try:
+                                    passthrough.write_frame(
+                                        frame_bytes,
+                                        format_info["width"],
+                                        format_info["height"],
+                                        format_info["pixelformat"],
+                                        format_info["bytesperline"],
+                                    )
+                                except Exception as pt_err:
+                                    logger.warning("Passthrough write error: %s", pt_err)
+
+                            # Force a keyframe periodically or when a client just connected
+                            if (frame_counter % KEYFRAME_INTERVAL == 0
+                                    or server.keyframe_requested.is_set()):
+                                enc.force_key_frame()
+                                server.keyframe_requested.clear()
+                            frame_counter += 1
+
+                            try:
+                                enc_result = enc.encode_from_buffer(
+                                    cap_result.index, cap_result.bytesused)
+                            except Exception as e:
+                                logger.error("Encode error: %s", e)
+                                try:
+                                    cap.queue_buffer(cap_result.index)
+                                except OSError as qerr:
+                                    logger.error("Failed to re-queue capture buffer: %s", qerr)
+                                continue
+
+                            if enc_result.reclaimed_idx is not None:
+                                try:
+                                    cap.queue_buffer(enc_result.reclaimed_idx)
+                                except OSError as e:
+                                    logger.error("Failed to re-queue buffer %d: %s",
+                                                 enc_result.reclaimed_idx, e)
+
+                            try:
+                                server.broadcast(enc_result.data)
+                            except Exception as e:
+                                logger.error("Broadcast error: %s", e)
+                                continue
+
+                            last_sent_ns = now_ns
+
+                            # Cache keyframes (containing IDR) for late-joining clients
+                            if _contains_nal_type(enc_result.data, 5):  # IDR = 5
+                                server.update_keyframe(enc_result.data)
+
+                    finally:
+                        for dm in dma_mmaps:
+                            try:
+                                dm.close()
+                            except Exception:
+                                pass
 
                 finally:
                     cap.close()
@@ -280,7 +327,8 @@ def _run_session(server: Server, capture_device: str,
 
 
 def run(server: Server, capture_device: str, encoder_device: str,
-        bitrate: int, subdev: str, initial_signal: SignalInfo | None) -> None:
+        bitrate: int, subdev: str, initial_signal: SignalInfo | None,
+        passthrough: HdmiPassthrough | None = None) -> None:
     """Run the video pipeline with automatic recovery.
 
     This function runs in a loop, recovering from errors by waiting for
@@ -293,6 +341,7 @@ def run(server: Server, capture_device: str, encoder_device: str,
         bitrate: Encoder bitrate.
         subdev: Path to V4L2 subdevice.
         initial_signal: Signal info from initial HDMI detection.
+        passthrough: Optional HdmiPassthrough instance for local display.
     """
     first_run = initial_signal is not None
     current_signal = initial_signal
@@ -309,7 +358,8 @@ def run(server: Server, capture_device: str, encoder_device: str,
                 continue
 
         try:
-            _run_session(server, capture_device, encoder_device, bitrate, first_run, current_signal, subdev)
+            _run_session(server, capture_device, encoder_device, bitrate,
+                         first_run, current_signal, subdev, passthrough)
         except Exception as e:
             logger.error("Session error: %s", e)
             if first_run and initial_signal is not None:

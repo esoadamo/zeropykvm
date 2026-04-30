@@ -128,6 +128,31 @@ class TestParse:
             os.unlink(cert_path)
             os.unlink(key_path)
 
+    def test_hdmi_passthrough_flag(self):
+        """Test --hdmi-passthrough flag."""
+        cert_path, key_path = self._create_temp_files()
+        try:
+            config = parse(["--cert", cert_path, "--key", key_path, "--hdmi-passthrough"])
+            assert config.hdmi_passthrough is True
+            assert config.hdmi_passthrough_device == "/dev/fb0"
+        finally:
+            os.unlink(cert_path)
+            os.unlink(key_path)
+
+    def test_hdmi_passthrough_device(self):
+        """Test --hdmi-passthrough-device option."""
+        cert_path, key_path = self._create_temp_files()
+        try:
+            config = parse([
+                "--cert", cert_path, "--key", key_path,
+                "--hdmi-passthrough", "--hdmi-passthrough-device", "/dev/fb1",
+            ])
+            assert config.hdmi_passthrough is True
+            assert config.hdmi_passthrough_device == "/dev/fb1"
+        finally:
+            os.unlink(cert_path)
+            os.unlink(key_path)
+
     def test_all_args(self):
         """Test all arguments together."""
         cert_path, key_path = self._create_temp_files()
@@ -141,6 +166,7 @@ class TestParse:
                 "--encoder", "/dev/video12",
                 "--bitrate", "3000000",
                 "--no-epaper",
+                "--hdmi-passthrough",
             ])
             assert config.port == 9443
             assert config.listen == "192.168.1.1"
@@ -148,6 +174,7 @@ class TestParse:
             assert config.encoder == "/dev/video12"
             assert config.bitrate == 3_000_000
             assert config.no_epaper is True
+            assert config.hdmi_passthrough is True
         finally:
             os.unlink(cert_path)
             os.unlink(key_path)
@@ -169,3 +196,5 @@ class TestParse:
         assert config.no_epaper is False
         assert config.tls_cert_path == ""
         assert config.tls_key_path == ""
+        assert config.hdmi_passthrough is False
+        assert config.hdmi_passthrough_device == "/dev/fb0"
