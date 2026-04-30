@@ -372,6 +372,15 @@ class HdmiPassthrough:
             self.fd = -1
             logger.info("Framebuffer closed")
 
+    def __enter__(self) -> "HdmiPassthrough":
+        """Support use as a context manager — opens the framebuffer on entry."""
+        self.open()
+        return self
+
+    def __exit__(self, *_) -> None:
+        """Support use as a context manager — closes the framebuffer on exit."""
+        self.close()
+
     def __del__(self) -> None:
         if self.fd >= 0:
             self.close()
@@ -434,7 +443,8 @@ class HdmiPassthrough:
     ) -> None:
         """Internal: convert and write one YUV frame to the framebuffer."""
         mm = self._mm
-        assert mm is not None
+        if mm is None:
+            return
 
         fb_stride = self.fb_line_length
 

@@ -188,12 +188,20 @@ def _run_session(server: Server, capture_device: str,
                     # QBUF to the encoder, so there is no data race.
                     dma_mmaps: list[mmap.mmap] = []
                     if passthrough is not None:
-                        for buf in dma_buffers:
-                            dm = mmap.mmap(
-                                buf.fd, buf.size,
-                                mmap.MAP_SHARED, mmap.PROT_READ,
-                            )
-                            dma_mmaps.append(dm)
+                        try:
+                            for buf in dma_buffers:
+                                dm = mmap.mmap(
+                                    buf.fd, buf.size,
+                                    mmap.MAP_SHARED, mmap.PROT_READ,
+                                )
+                                dma_mmaps.append(dm)
+                        except Exception:
+                            for dm in dma_mmaps:
+                                try:
+                                    dm.close()
+                                except Exception:
+                                    pass
+                            raise
 
                     try:
                         # Force a keyframe every ~2 seconds so late-joining clients
@@ -252,7 +260,7 @@ def _run_session(server: Server, capture_device: str,
 
                             # HDMI passthrough: write the raw captured frame to the
                             # local framebuffer before handing the buffer to the encoder.
-                            if passthrough is not None and dma_mmaps:
+                            if passthrough is not None:
                                 dm = dma_mmaps[cap_result.index]
                                 dma_buffers[cap_result.index].sync_start(v4l2.DMA_BUF_SYNC_READ)
                                 try:
