@@ -264,13 +264,8 @@ def _run_session(server: Server, capture_device: str,
                                 dm = dma_mmaps[cap_result.index]
                                 dma_buffers[cap_result.index].sync_start(v4l2.DMA_BUF_SYNC_READ)
                                 try:
-                                    dm.seek(0)
-                                    frame_bytes = dm.read(cap_result.bytesused)
-                                finally:
-                                    dma_buffers[cap_result.index].sync_end(v4l2.DMA_BUF_SYNC_READ)
-                                try:
                                     passthrough.write_frame(
-                                        frame_bytes,
+                                        dm,
                                         format_info["width"],
                                         format_info["height"],
                                         format_info["pixelformat"],
@@ -278,6 +273,8 @@ def _run_session(server: Server, capture_device: str,
                                     )
                                 except Exception as pt_err:
                                     logger.warning("Passthrough write error: %s", pt_err)
+                                finally:
+                                    dma_buffers[cap_result.index].sync_end(v4l2.DMA_BUF_SYNC_READ)
 
                             # Force a keyframe periodically or when a client just connected
                             if (frame_counter % KEYFRAME_INTERVAL == 0
