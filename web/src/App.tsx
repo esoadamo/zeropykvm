@@ -214,16 +214,8 @@ function App() {
                 </svg>
               </div>
 
-              {/* CRT Content Wrapper */}
+              {/* CRT Content Wrapper — opacity controlled by power animations */}
               <div ref={crtScreenRef} className="crt-content">
-              {/* Disconnected "NO POWER" bouncing overlay */}
-              {!connection.isConnected && (
-                <div className="no-power-overlay">
-                  <div className="no-power-bouncer">
-                    <span className="no-power-text">NO POWER</span>
-                  </div>
-                </div>
-              )}
                 {/* WebCodecs canvas (primary) */}
                 <canvas
                   ref={canvasRef}
@@ -240,6 +232,16 @@ function App() {
                   style={{ display: 'none', filter: filterStyle }}
                 />
               </div>
+
+              {/* "NO POWER" bouncing overlay — sibling of crt-content so it is
+                  always visible regardless of the CRT power-on/off opacity animation */}
+              {!connection.isConnected && (
+                <div className="no-power-overlay">
+                  <div className="no-power-bouncer">
+                    <span className="no-power-text">NO POWER</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="brand-badge">MYKVM 2000 Professional</div>
