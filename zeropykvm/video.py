@@ -227,6 +227,16 @@ def _run_session(server: Server, capture_device: str,
 
                             timeout_count = 0
 
+                            # Drain all other available buffers to prevent queue-build-up latency
+                            while True:
+                                try:
+                                    next_cap = cap.dequeue_buffer(0)
+                                    # We have a newer frame! Re-queue the old frame so capture can reuse it.
+                                    cap.queue_buffer(cap_result.index)
+                                    cap_result = next_cap
+                                except TimeoutError:
+                                    break
+
                             now_ns = time.monotonic_ns()
 
                             # Skip frame if the client has signalled it is behind.
