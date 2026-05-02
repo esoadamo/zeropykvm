@@ -126,6 +126,19 @@ function App() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, [log]);
 
+  // Request Keyboard Lock when in fullscreen so the browser forwards reserved
+  // shortcuts (Ctrl+W, F-keys, etc.) to the KVM screen instead of acting on them.
+  useEffect(() => {
+    const kb = (navigator as Navigator & { keyboard?: { lock(keys?: string[]): Promise<void>; unlock(): void } }).keyboard;
+    if (!kb) return;
+    if (isFullscreen) {
+      kb.lock().catch(() => {});
+    } else {
+      kb.unlock();
+    }
+    return () => { kb.unlock(); };
+  }, [isFullscreen]);
+
   // Triple-ESC to exit maximized mode (when not in real fullscreen)
   const escCountRef = useRef(0);
   const escTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

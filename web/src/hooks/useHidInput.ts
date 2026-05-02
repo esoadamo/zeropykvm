@@ -189,6 +189,18 @@ export function useHidInput({ send, log, invertScroll = false, cursorRef }: UseH
     event.preventDefault();
   }, []);
 
+  // Attach document-level keyboard capture when active so browser shortcuts
+  // (Ctrl+W, Ctrl+T, F-keys, etc.) are intercepted before the browser acts on them.
+  useEffect(() => {
+    if (!isActive) return;
+    document.addEventListener('keydown', handleKeyDown as EventListener, { capture: true });
+    document.addEventListener('keyup', handleKeyUp as EventListener, { capture: true });
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown as EventListener, { capture: true });
+      document.removeEventListener('keyup', handleKeyUp as EventListener, { capture: true });
+    };
+  }, [isActive, handleKeyDown, handleKeyUp]);
+
   const bindToElement = useCallback(
     (element: HTMLElement | null) => {
       // Unbind from previous element
@@ -196,8 +208,6 @@ export function useHidInput({ send, log, invertScroll = false, cursorRef }: UseH
         const el = containerRef.current;
         el.removeEventListener('focus', handleFocus);
         el.removeEventListener('blur', handleBlur);
-        el.removeEventListener('keydown', handleKeyDown as EventListener);
-        el.removeEventListener('keyup', handleKeyUp as EventListener);
         el.removeEventListener('mousemove', handleMouseMove as EventListener);
         el.removeEventListener('mousedown', handleMouseDown as EventListener);
         el.removeEventListener('mouseup', handleMouseUp as EventListener);
@@ -211,8 +221,6 @@ export function useHidInput({ send, log, invertScroll = false, cursorRef }: UseH
       if (element) {
         element.addEventListener('focus', handleFocus);
         element.addEventListener('blur', handleBlur);
-        element.addEventListener('keydown', handleKeyDown as EventListener);
-        element.addEventListener('keyup', handleKeyUp as EventListener);
         element.addEventListener('mousemove', handleMouseMove as EventListener);
         element.addEventListener('mousedown', handleMouseDown as EventListener);
         element.addEventListener('mouseup', handleMouseUp as EventListener);
@@ -223,8 +231,6 @@ export function useHidInput({ send, log, invertScroll = false, cursorRef }: UseH
     [
       handleFocus,
       handleBlur,
-      handleKeyDown,
-      handleKeyUp,
       handleMouseMove,
       handleMouseDown,
       handleMouseUp,
