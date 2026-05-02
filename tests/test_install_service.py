@@ -52,9 +52,9 @@ class TestBuildServiceUnit:
         unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
         assert "WantedBy=multi-user.target" in unit
 
-    def test_contains_no_epaper(self):
+    def test_contains_epaper(self):
         unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
-        assert "--no-epaper" in unit
+        assert "--no-epaper" not in unit
 
     def test_has_unit_section(self):
         unit = build_service_unit("/usr/bin/zeropykvm", "/etc/zeropykvm", 8443)
