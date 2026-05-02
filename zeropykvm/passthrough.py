@@ -288,6 +288,90 @@ def convert_uyvy_to_argb8888(src: bytes | bytearray | memoryview,
     return out
 
 
+def convert_bgr24_to_rgb565(src: bytes | bytearray | memoryview,
+                             width: int, height: int,
+                             src_stride: int) -> bytearray:
+    """Convert a BGR24 frame to a packed RGB565 frame."""
+    out = bytearray(width * height * 2)
+    dst_i = 0
+    for row in range(height):
+        row_base = row * src_stride
+        for col in range(width):
+            base = row_base + col * 3
+            b = src[base]
+            g = src[base + 1]
+            r = src[base + 2]
+
+            px = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
+            out[dst_i] = px & 0xFF
+            out[dst_i + 1] = (px >> 8) & 0xFF
+            dst_i += 2
+    return out
+
+
+def convert_bgr24_to_argb8888(src: bytes | bytearray | memoryview,
+                               width: int, height: int,
+                               src_stride: int) -> bytearray:
+    """Convert a BGR24 frame to ARGB8888 (stored as B G R A in memory)."""
+    out = bytearray(width * height * 4)
+    dst_i = 0
+    for row in range(height):
+        row_base = row * src_stride
+        for col in range(width):
+            base = row_base + col * 3
+            out[dst_i] = src[base]
+            out[dst_i + 1] = src[base + 1]
+            out[dst_i + 2] = src[base + 2]
+            out[dst_i + 3] = 0xFF
+            dst_i += 4
+    return out
+
+
+def convert_rgb24_to_rgb565(src: bytes | bytearray | memoryview,
+                             width: int, height: int,
+                             src_stride: int) -> bytearray:
+    """Convert an RGB24 frame to a packed RGB565 frame."""
+    out = bytearray(width * height * 2)
+    dst_i = 0
+    for row in range(height):
+        row_base = row * src_stride
+        for col in range(width):
+            base = row_base + col * 3
+            r = src[base]
+            g = src[base + 1]
+            b = src[base + 2]
+
+            px = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
+            out[dst_i] = px & 0xFF
+            out[dst_i + 1] = (px >> 8) & 0xFF
+            dst_i += 2
+    return out
+
+
+def convert_rgb24_to_argb8888(src: bytes | bytearray | memoryview,
+                               width: int, height: int,
+                               src_stride: int) -> bytearray:
+    """Convert an RGB24 frame to ARGB8888 (stored as B G R A in memory)."""
+    out = bytearray(width * height * 4)
+    dst_i = 0
+    for row in range(height):
+        row_base = row * src_stride
+        for col in range(width):
+            base = row_base + col * 3
+            r = src[base]
+            g = src[base + 1]
+            b = src[base + 2]
+
+            out[dst_i] = b
+            out[dst_i + 1] = g
+            out[dst_i + 2] = r
+            out[dst_i + 3] = 0xFF
+            dst_i += 4
+    return out
+
+
 # ── Main class ────────────────────────────────────────────────────────────────
 
 class HdmiPassthrough:
@@ -427,11 +511,52 @@ class HdmiPassthrough:
             self._write_yuv_frame(mv, out_w, out_h, bytesperline, is_uyvy=False)
         elif pixelformat == v4l2.V4L2_PIX_FMT_UYVY:
             self._write_yuv_frame(mv, out_w, out_h, bytesperline, is_uyvy=True)
+        elif pixelformat == v4l2.V4L2_PIX_FMT_BGR24:
+            self._write_bgr_frame(mv, out_w, out_h, bytesperline, is_rgb24=False)
+        elif pixelformat == v4l2.V4L2_PIX_FMT_RGB24:
+            self._write_bgr_frame(mv, out_w, out_h, bytesperline, is_rgb24=True)
         else:
             logger.warning(
                 "HDMI passthrough: unsupported pixel format 0x%08x — frame skipped",
                 pixelformat,
             )
+
+    def _write_bgr_frame(
+        self,
+        src: memoryview,
+        width: int,
+        height: int,
+        src_stride: int,
+        is_rgb24: bool,
+    ) -> None:
+        """Internal: convert and write one RGB24/BGR24 frame to the framebuffer."""
+        mm = self._mm
+        if mm is None:
+            return
+
+        fb_stride = self.fb_line_length
+
+        if self.fb_bpp == 16:
+            if is_rgb24:
+                rgb_frame = convert_rgb24_to_rgb565(src, width, height, src_stride)
+            else:
+                rgb_frame = convert_bgr24_to_rgb565(src, width, height, src_stride)
+            row_bytes = width * 2
+            for y in range(height):
+                fb_off = y * fb_stride
+                src_off = y * row_bytes
+                mm[fb_off:fb_off + row_bytes] = rgb_frame[src_off:src_off + row_bytes]
+
+        elif self.fb_bpp == 32:
+            if is_rgb24:
+                rgb_frame = convert_rgb24_to_argb8888(src, width, height, src_stride)
+            else:
+                rgb_frame = convert_bgr24_to_argb8888(src, width, height, src_stride)
+            row_bytes = width * 4
+            for y in range(height):
+                fb_off = y * fb_stride
+                src_off = y * row_bytes
+                mm[fb_off:fb_off + row_bytes] = rgb_frame[src_off:src_off + row_bytes]
 
     def _write_yuv_frame(
         self,
