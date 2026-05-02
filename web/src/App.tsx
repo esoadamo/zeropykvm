@@ -214,9 +214,8 @@ function App() {
                 </svg>
               </div>
 
-              {/* CRT Content Wrapper */}
+              {/* CRT Content Wrapper — opacity controlled by power animations */}
               <div ref={crtScreenRef} className="crt-content">
-                <div className="no-signal" style={{ display: connection.isConnected ? 'none' : 'block' }} />
                 {/* WebCodecs canvas (primary) */}
                 <canvas
                   ref={canvasRef}
@@ -233,6 +232,16 @@ function App() {
                   style={{ display: 'none', filter: filterStyle }}
                 />
               </div>
+
+              {/* "NO POWER" bouncing overlay — sibling of crt-content so it is
+                  always visible regardless of the CRT power-on/off opacity animation */}
+              {!connection.isConnected && (
+                <div className="no-power-overlay">
+                  <div className="no-power-bouncer">
+                    <span className="no-power-text">NO POWER</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="brand-badge">MYKVM 2000 Professional</div>
@@ -263,10 +272,17 @@ function App() {
               </div>
             </div>
             <button
+              id="power-btn"
               className={`retro-btn power-btn ${connection.isConnected ? 'active' : ''}`}
               aria-label="Power"
               onClick={handlePowerClick}
-            />
+            >
+              {/* Power icon */}
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 3v9" strokeLinecap="round" />
+                <path d="M7.5 6.5A8 8 0 1 0 16.5 6.5" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
         </div>
 

@@ -16,6 +16,7 @@ from .edid import EdidPreset, set_edid_with_retry, wait_for_signal
 from .epaper import Display
 from .http_handler import HttpHandler
 from .https_server import run as run_https_server
+from .passthrough import HdmiPassthrough
 from .server import Server
 from .usb import HidKeyboard, HidMouse, cleanup_gadget, setup_gadget
 from .utils import get_local_ip
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 _g_display: Display | None = None
 _g_hid_keyboard: HidKeyboard | None = None
 _g_hid_mouse: HidMouse | None = None
+_g_passthrough: HdmiPassthrough | None = None
 
 
 def _handle_signal(signum, frame):
@@ -39,6 +41,9 @@ def _handle_signal(signum, frame):
         _g_hid_mouse.deinit()
 
     cleanup_gadget()
+
+    if _g_passthrough is not None:
+        _g_passthrough.close()
 
     if _g_display is not None:
         _g_display.shutdown()
@@ -59,7 +64,7 @@ def main():
         from .install_service import main as _install_service_main
         _install_service_main()
         return
-    global _g_display, _g_hid_keyboard, _g_hid_mouse
+    global _g_display, _g_hid_keyboard, _g_hid_mouse, _g_passthrough
 
     # Configure logging
     logging.basicConfig(
@@ -156,11 +161,24 @@ def main():
 
     http_handler = HttpHandler(web_dist_path)
 
+    # Set up optional HDMI passthrough
+    passthrough: HdmiPassthrough | None = None
+    if config.hdmi_passthrough:
+        passthrough = HdmiPassthrough(config.hdmi_passthrough_device)
+        _g_passthrough = passthrough
+        try:
+            passthrough.open()
+            logger.info("HDMI passthrough enabled via %s", config.hdmi_passthrough_device)
+        except Exception as e:
+            logger.warning("Failed to open framebuffer for HDMI passthrough: %s", e)
+            passthrough = None
+            _g_passthrough = None
+
     # Start V4L2 video thread
     v4l2_thread = threading.Thread(
         target=run_video,
         args=(server, config.device, config.encoder, config.bitrate,
-              config.subdev, signal_info),
+              config.subdev, signal_info, passthrough),
         daemon=True,
     )
     v4l2_thread.start()

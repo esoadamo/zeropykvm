@@ -21,6 +21,8 @@ class Config:
     no_epaper: bool = False
     tls_cert_path: str = ""
     tls_key_path: str = ""
+    hdmi_passthrough: bool = False
+    hdmi_passthrough_device: str = "/dev/fb0"
 
 
 def parse(args: list[str] | None = None) -> Config:
@@ -102,6 +104,17 @@ Examples:
         action="store_true",
         help="Disable e-Paper display",
     )
+    parser.add_argument(
+        "--hdmi-passthrough",
+        action="store_true",
+        help="Mirror the HDMI input to the RPi HDMI output via the framebuffer",
+    )
+    parser.add_argument(
+        "--hdmi-passthrough-device",
+        default="/dev/fb0",
+        metavar="<path>",
+        help="Framebuffer device for HDMI passthrough (default: /dev/fb0)",
+    )
 
     parsed = parser.parse_args(args)
 
@@ -126,4 +139,6 @@ Examples:
         no_epaper=parsed.no_epaper,
         tls_cert_path=cert_path,
         tls_key_path=key_path,
+        hdmi_passthrough=parsed.hdmi_passthrough,
+        hdmi_passthrough_device=parsed.hdmi_passthrough_device,
     )
