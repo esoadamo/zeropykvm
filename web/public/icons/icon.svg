@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="#2a2a2a"/>
+  <!-- Monitor body -->
+  <rect x="96" y="80" width="320" height="240" rx="16" fill="#e0e0d0" stroke="#b0b0a0" stroke-width="8"/>
+  <!-- Screen bezel -->
+  <rect x="120" y="104" width="272" height="192" rx="8" fill="#333"/>
+  <!-- Screen surface -->
+  <rect x="136" y="116" width="240" height="168" rx="4" fill="#111"/>
+  <!-- KVM text on screen -->
+  <text x="256" y="216" font-family="monospace" font-size="52" font-weight="bold"
+        text-anchor="middle" fill="#33ff33">KVM</text>
+  <!-- Scanline hint -->
+  <line x1="136" y1="200" x2="376" y2="200" stroke="#33ff33" stroke-width="1" stroke-opacity="0.3"/>
+  <!-- Monitor stand neck -->
+  <rect x="228" y="320" width="56" height="40" fill="#d0d0c0"/>
+  <!-- Monitor base -->
+  <rect x="168" y="356" width="176" height="28" rx="8" fill="#d0d0c0"/>
+  <!-- Power LED -->
+  <circle cx="352" cy="284" r="8" fill="#00ff00" opacity="0.9"/>
+  <!-- CRT brand badge -->
+  <text x="256" y="306" font-family="monospace" font-size="14"
+        text-anchor="middle" fill="#888">MYKVM 2000</text>
+</svg>
