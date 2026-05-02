@@ -216,7 +216,14 @@ function App() {
 
               {/* CRT Content Wrapper */}
               <div ref={crtScreenRef} className="crt-content">
-                <div className="no-signal" style={{ display: connection.isConnected ? 'none' : 'block' }} />
+              {/* Disconnected "NO POWER" bouncing overlay */}
+              {!connection.isConnected && (
+                <div className="no-power-overlay">
+                  <div className="no-power-bouncer">
+                    <span className="no-power-text">NO POWER</span>
+                  </div>
+                </div>
+              )}
                 {/* WebCodecs canvas (primary) */}
                 <canvas
                   ref={canvasRef}
@@ -263,10 +270,17 @@ function App() {
               </div>
             </div>
             <button
+              id="power-btn"
               className={`retro-btn power-btn ${connection.isConnected ? 'active' : ''}`}
               aria-label="Power"
               onClick={handlePowerClick}
-            />
+            >
+              {/* Power icon */}
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 3v9" strokeLinecap="round" />
+                <path d="M7.5 6.5A8 8 0 1 0 16.5 6.5" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
         </div>
 
