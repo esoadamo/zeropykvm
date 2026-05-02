@@ -61,7 +61,7 @@ def build_service_unit(
         f" --cert {cert_path}"
         f" --key {key_path}"
         f" --port {port}"
-        " --no-epaper\n"
+        " --hdmi-passthrough\n"
         "Restart=on-failure\n"
         "RestartSec=5\n"
         "\n"
