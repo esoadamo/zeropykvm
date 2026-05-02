@@ -16,16 +16,22 @@ SERVICE_FILE = f"/etc/systemd/system/{SERVICE_NAME}.service"
 
 
 def _find_executable() -> str:
-    """Return the absolute path of the zeropykvm executable."""
-    import shutil
-    path = shutil.which("zeropykvm")
-    if path:
-        return path
-    # Fall back to sys.executable's directory
+    """Return the absolute path of the zeropykvm executable.
+
+    Prefers the binary that lives next to the currently-running Python
+    interpreter (i.e. the active venv), so that the service unit always uses
+    the same installation that ran ``install-service``.
+    """
+    # First: same venv / bin dir as the current interpreter
     bin_dir = os.path.dirname(sys.executable)
     candidate = os.path.join(bin_dir, "zeropykvm")
     if os.path.exists(candidate):
         return candidate
+    # Fall back: $PATH lookup (may point to a different installation)
+    import shutil
+    path = shutil.which("zeropykvm")
+    if path:
+        return path
     return "zeropykvm"
 
 
@@ -33,6 +39,7 @@ def build_service_unit(
     exec_path: str,
     data_dir: str,
     port: int,
+    hdmi_passthrough: bool = False,
 ) -> str:
     """Return the content of the systemd unit file as a string.
 
@@ -43,12 +50,24 @@ def build_service_unit(
         exec_path: Absolute path to the zeropykvm executable.
         data_dir: Directory that stores certs and config.
         port: HTTPS port to listen on.
+        hdmi_passthrough: Whether to enable HDMI passthrough.
 
     Returns:
         Systemd unit file content.
     """
     cert_path = os.path.join(data_dir, "cert.pem")
     key_path = os.path.join(data_dir, "key.pem")
+    cmd_args = [
+        f"ExecStart={exec_path}",
+        f" --cert {cert_path}",
+        f" --key {key_path}",
+        f" --port {port}"
+    ]
+    if hdmi_passthrough:
+        cmd_args.append(" --hdmi-passthrough")
+        
+    cmd_str = "".join(cmd_args)
+    
     return (
         "[Unit]\n"
         f"Description=zeropykvm KVM-over-IP service\n"
@@ -57,11 +76,7 @@ def build_service_unit(
         "[Service]\n"
         "Type=simple\n"
         f"WorkingDirectory={data_dir}\n"
-        f"ExecStart={exec_path}"
-        f" --cert {cert_path}"
-        f" --key {key_path}"
-        f" --port {port}"
-        " --hdmi-passthrough\n"
+        f"{cmd_str}\n"
         "Restart=on-failure\n"
         "RestartSec=5\n"
         "\n"
@@ -76,6 +91,7 @@ def install_service(
     enable: bool = True,
     start: bool = True,
     service_file: str = SERVICE_FILE,
+    hdmi_passthrough: bool = False,
 ) -> None:
     """Install and optionally enable/start the zeropykvm systemd service.
 
@@ -88,6 +104,7 @@ def install_service(
         enable: Whether to enable the service at boot.
         start: Whether to start the service immediately.
         service_file: Path where the systemd unit file is written.
+        hdmi_passthrough: Whether to enable HDMI passthrough in the service.
     """
     # Create data directory
     os.makedirs(data_dir, mode=0o755, exist_ok=True)
@@ -112,6 +129,7 @@ def install_service(
         exec_path=exec_path,
         data_dir=data_dir,
         port=port,
+        hdmi_passthrough=hdmi_passthrough,
     )
     with open(service_file, "w") as f:
         f.write(unit_content)
@@ -180,6 +198,11 @@ def main() -> None:
         action="store_true",
         help="Do not start the service immediately after installation",
     )
+    parser.add_argument(
+        "--hdmi-passthrough",
+        action="store_true",
+        help="Enable zero-latency HDMI passthrough to the local display",
+    )
 
     args = parser.parse_args()
 
@@ -190,6 +213,7 @@ def main() -> None:
             enable=not args.no_enable,
             start=not args.no_start,
             service_file=SERVICE_FILE,
+            hdmi_passthrough=args.hdmi_passthrough,
         )
     except PermissionError as exc:
         print(f"Error: {exc}", file=sys.stderr)

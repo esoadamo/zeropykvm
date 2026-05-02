@@ -112,11 +112,10 @@ When `--hdmi-passthrough` is given, each captured frame is also written to the L
 This lets a locally-connected HDMI monitor display the source content in real time while the stream is simultaneously encoded and served over the network.
 
 Supported framebuffer colour depths: **16-bit (RGB565)** and **32-bit (ARGB8888)**.
-Supported capture pixel formats: **YUYV** and **UYVY** (both produced by the TC358743).
+Supported capture pixel formats: **YUYV**, **UYVY**, and **BGR24** (produced by the TC358743).
 
-> **Performance note:** The YUV → RGB colour conversion is done in software.
-> At 1080p this is CPU-intensive and may limit the effective frame rate.
-> 720p or lower resolutions work more smoothly on a Pi Zero 2 W.
+> **Performance note:** The pixel format conversion is handled by a dynamically compiled C-extension directly between memory-mapped DMA buffers, achieving absolute zero-copy latency (literally 0 frames of software delay).
+> **Requirement:** You MUST have `gcc` installed on the host device for this feature to function properly, as the extension is compiled at runtime to perfectly match the active hardware memory layout.
 
 ### Systemd service
 
@@ -131,6 +130,9 @@ sudo zeropykvm install-service
 
 # Custom port and data directory
 sudo zeropykvm install-service --port 443 --data-dir /opt/zeropykvm
+
+# Install with HDMI passthrough enabled by default
+sudo zeropykvm install-service --hdmi-passthrough
 
 # Install without starting the service immediately
 sudo zeropykvm install-service --no-start

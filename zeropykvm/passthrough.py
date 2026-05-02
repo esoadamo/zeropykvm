@@ -401,7 +401,7 @@ void conv_bgr24_rgb565(const uint8_t *src, uint8_t *dst, int width, int height, 
         const uint8_t *s = src + y * src_stride;
         uint16_t *d = (uint16_t *)(dst + y * dst_stride);
         for (int x = 0; x < width; x++) {
-            uint8_t r = s[x*3], g = s[x*3+1], b = s[x*3+2];
+            uint8_t b = s[x*3], g = s[x*3+1], r = s[x*3+2];
             d[x] = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
         }
     }
@@ -447,7 +447,7 @@ void conv_bgr24_argb8888(const uint8_t *src, uint8_t *dst, int width, int height
         const uint8_t *s = src + y * src_stride;
         uint8_t *d = dst + y * dst_stride;
         for (int x = 0; x < width; x++) {
-            d[x*4] = s[x*3+2]; d[x*4+1] = s[x*3+1]; d[x*4+2] = s[x*3]; d[x*4+3] = 0xFF;
+            d[x*4] = s[x*3]; d[x*4+1] = s[x*3+1]; d[x*4+2] = s[x*3+2]; d[x*4+3] = 0xFF;
         }
     }
 }
