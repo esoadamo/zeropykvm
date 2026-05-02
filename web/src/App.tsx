@@ -130,12 +130,8 @@ function App() {
   // shortcuts (Ctrl+W, F-keys, etc.) to the KVM screen instead of acting on them.
   useEffect(() => {
     const kb = (navigator as Navigator & { keyboard?: { lock(keys?: string[]): Promise<void>; unlock(): void } }).keyboard;
-    if (!kb) return;
-    if (isFullscreen) {
-      kb.lock().catch(() => {});
-    } else {
-      kb.unlock();
-    }
+    if (!kb || !isFullscreen) return;
+    kb.lock().catch(() => {});
     return () => { kb.unlock(); };
   }, [isFullscreen]);
 
