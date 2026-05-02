@@ -577,6 +577,18 @@ class HdmiPassthrough:
         except Exception:
             pass
 
+        # Unbind the frame buffer console completely so it stops battling the screen
+        try:
+            import glob
+            for name_path in glob.glob("/sys/class/vtconsole/vtcon*/name"):
+                with open(name_path, "r") as f:
+                    if "frame buffer" in f.read():
+                        bind_path = name_path.replace("/name", "/bind")
+                        with open(bind_path, "w") as fb:
+                            fb.write("0\n")
+        except Exception as e:
+            logger.warning("Failed to unbind vtcon: %s", e)
+
         self.fd = os.open(self.device, os.O_RDWR)
         try:
             vinfo = _FbVarScreenInfo()
