@@ -372,8 +372,164 @@ def convert_rgb24_to_argb8888(src: bytes | bytearray | memoryview,
     return out
 
 
-# ── Main class ────────────────────────────────────────────────────────────────
+# ── Fast C color conversion ───────────────────────────────────────────────────
 
+_C_CODE = """
+#include <stdint.h>
+
+static inline uint8_t clamp(int v) {
+    return (v < 0) ? 0 : ((v > 255) ? 255 : v);
+}
+
+static inline uint16_t yuv_to_rgb565(int y, int u, int v) {
+    int c = y - 16, d = u - 128, e = v - 128;
+    int r = clamp((298 * c + 409 * e + 128) >> 8);
+    int g = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+    int b = clamp((298 * c + 516 * d + 128) >> 8);
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+static inline void yuv_to_rgb888(int y, int u, int v, uint8_t *r, uint8_t *g, uint8_t *b) {
+    int c = y - 16, d = u - 128, e = v - 128;
+    *r = clamp((298 * c + 409 * e + 128) >> 8);
+    *g = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+    *b = clamp((298 * c + 516 * d + 128) >> 8);
+}
+
+void conv_bgr24_rgb565(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint16_t *d = (uint16_t *)(dst + y * width * 2);
+        for (int x = 0; x < width; x++) {
+            uint8_t b = s[x*3], g = s[x*3+1], r = s[x*3+2];
+            d[x] = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        }
+    }
+}
+
+void conv_rgb24_rgb565(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint16_t *d = (uint16_t *)(dst + y * width * 2);
+        for (int x = 0; x < width; x++) {
+            uint8_t r = s[x*3], g = s[x*3+1], b = s[x*3+2];
+            d[x] = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        }
+    }
+}
+
+void conv_yuyv_rgb565(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint16_t *d = (uint16_t *)(dst + y * width * 2);
+        for (int x = 0; x < width; x += 2) {
+            uint8_t y0 = s[x*2], u = s[x*2+1], y1 = s[x*2+2], v = s[x*2+3];
+            d[x] = yuv_to_rgb565(y0, u, v);
+            d[x+1] = yuv_to_rgb565(y1, u, v);
+        }
+    }
+}
+
+void conv_uyvy_rgb565(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint16_t *d = (uint16_t *)(dst + y * width * 2);
+        for (int x = 0; x < width; x += 2) {
+            uint8_t u = s[x*2], y0 = s[x*2+1], v = s[x*2+2], y1 = s[x*2+3];
+            d[x] = yuv_to_rgb565(y0, u, v);
+            d[x+1] = yuv_to_rgb565(y1, u, v);
+        }
+    }
+}
+
+void conv_bgr24_argb8888(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint8_t *d = dst + y * width * 4;
+        for (int x = 0; x < width; x++) {
+            d[x*4] = s[x*3]; d[x*4+1] = s[x*3+1]; d[x*4+2] = s[x*3+2]; d[x*4+3] = 0xFF;
+        }
+    }
+}
+
+void conv_rgb24_argb8888(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint8_t *d = dst + y * width * 4;
+        for (int x = 0; x < width; x++) {
+            d[x*4] = s[x*3+2]; d[x*4+1] = s[x*3+1]; d[x*4+2] = s[x*3]; d[x*4+3] = 0xFF;
+        }
+    }
+}
+
+void conv_yuyv_argb8888(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint8_t *d = dst + y * width * 4;
+        for (int x = 0; x < width; x += 2) {
+            uint8_t y0 = s[x*2], u = s[x*2+1], y1 = s[x*2+2], v = s[x*2+3];
+            yuv_to_rgb888(y0, u, v, &d[x*4+2], &d[x*4+1], &d[x*4]); d[x*4+3] = 0xFF;
+            yuv_to_rgb888(y1, u, v, &d[x*4+6], &d[x*4+5], &d[x*4+4]); d[x*4+7] = 0xFF;
+        }
+    }
+}
+
+void conv_uyvy_argb8888(const uint8_t *src, uint8_t *dst, int width, int height, int stride) {
+    for (int y = 0; y < height; y++) {
+        const uint8_t *s = src + y * stride;
+        uint8_t *d = dst + y * width * 4;
+        for (int x = 0; x < width; x += 2) {
+            uint8_t u = s[x*2], y0 = s[x*2+1], v = s[x*2+2], y1 = s[x*2+3];
+            yuv_to_rgb888(y0, u, v, &d[x*4+2], &d[x*4+1], &d[x*4]); d[x*4+3] = 0xFF;
+            yuv_to_rgb888(y1, u, v, &d[x*4+6], &d[x*4+5], &d[x*4+4]); d[x*4+7] = 0xFF;
+        }
+    }
+}
+"""
+
+_c_lib = None
+_c_lib_failed = False
+
+def _get_c_lib():
+    global _c_lib, _c_lib_failed
+    if _c_lib is not None or _c_lib_failed:
+        return _c_lib
+
+    import tempfile, subprocess
+    so_path = "/tmp/zeropykvm_colorconv.so"
+    if not os.path.exists(so_path):
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".c", mode="w", delete=False) as f:
+                f.write(_C_CODE)
+                c_path = f.name
+            subprocess.run(["gcc", "-shared", "-fPIC", "-O3", "-o", so_path, c_path], check=True)
+            os.remove(c_path)
+        except Exception as e:
+            logger.warning("Failed to compile fast C color conversion. Falling back to slow Python loops: %s", e)
+            _c_lib_failed = True
+            return None
+
+    try:
+        lib = ctypes.CDLL(so_path)
+        for func in ["conv_bgr24_rgb565", "conv_rgb24_rgb565", "conv_yuyv_rgb565", "conv_uyvy_rgb565",
+                     "conv_bgr24_argb8888", "conv_rgb24_argb8888", "conv_yuyv_argb8888", "conv_uyvy_argb8888"]:
+            getattr(lib, func).argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+        _c_lib = lib
+        return _c_lib
+    except Exception as e:
+        logger.warning("Failed to load fast C color conversion: %s", e)
+        _c_lib_failed = True
+        return None
+
+def _get_ptr(mv: memoryview):
+    if mv.readonly:
+        obj = mv.obj
+        if isinstance(obj, bytes):
+            return obj
+        return mv.tobytes()
+    return ctypes.byref((ctypes.c_char * len(mv)).from_buffer(mv))
+
+# ── Main class ────────────────────────────────────────────────────────────────
 class HdmiPassthrough:
     """HDMI passthrough via the Linux framebuffer device.
 
@@ -406,6 +562,21 @@ class HdmiPassthrough:
             RuntimeError: If the framebuffer colour depth is unsupported.
         """
         logger.info("Opening framebuffer device %s", self.device)
+
+        # Disable blinking console cursor that might fight with our passthrough
+        try:
+            with open("/sys/class/graphics/fbcon/cursor_blink", "w") as f:
+                f.write("0\n")
+        except Exception:
+            pass
+
+        # Clear the terminal screen so the shell prompt doesn't show through
+        try:
+            with open("/dev/tty1", "w") as f:
+                f.write("\033[?25l\033[2J")
+        except Exception:
+            pass
+
         self.fd = os.open(self.device, os.O_RDWR)
         try:
             vinfo = _FbVarScreenInfo()
@@ -536,11 +707,19 @@ class HdmiPassthrough:
 
         fb_stride = self.fb_line_length
 
+        c_lib = _get_c_lib()
         if self.fb_bpp == 16:
-            if is_rgb24:
-                rgb_frame = convert_rgb24_to_rgb565(src, width, height, src_stride)
+            if c_lib:
+                func = c_lib.conv_rgb24_rgb565 if is_rgb24 else c_lib.conv_bgr24_rgb565
+                out = bytearray(width * height * 2)
+                out_ptr = (ctypes.c_char * len(out)).from_buffer(out)
+                func(_get_ptr(src), ctypes.byref(out_ptr), width, height, src_stride)
+                rgb_frame = out
             else:
-                rgb_frame = convert_bgr24_to_rgb565(src, width, height, src_stride)
+                if is_rgb24:
+                    rgb_frame = convert_rgb24_to_rgb565(src, width, height, src_stride)
+                else:
+                    rgb_frame = convert_bgr24_to_rgb565(src, width, height, src_stride)
             row_bytes = width * 2
             for y in range(height):
                 fb_off = y * fb_stride
@@ -548,10 +727,17 @@ class HdmiPassthrough:
                 mm[fb_off:fb_off + row_bytes] = rgb_frame[src_off:src_off + row_bytes]
 
         elif self.fb_bpp == 32:
-            if is_rgb24:
-                rgb_frame = convert_rgb24_to_argb8888(src, width, height, src_stride)
+            if c_lib:
+                func = c_lib.conv_rgb24_argb8888 if is_rgb24 else c_lib.conv_bgr24_argb8888
+                out = bytearray(width * height * 4)
+                out_ptr = (ctypes.c_char * len(out)).from_buffer(out)
+                func(_get_ptr(src), ctypes.byref(out_ptr), width, height, src_stride)
+                rgb_frame = out
             else:
-                rgb_frame = convert_bgr24_to_argb8888(src, width, height, src_stride)
+                if is_rgb24:
+                    rgb_frame = convert_rgb24_to_argb8888(src, width, height, src_stride)
+                else:
+                    rgb_frame = convert_bgr24_to_argb8888(src, width, height, src_stride)
             row_bytes = width * 4
             for y in range(height):
                 fb_off = y * fb_stride
@@ -573,11 +759,19 @@ class HdmiPassthrough:
 
         fb_stride = self.fb_line_length
 
+        c_lib = _get_c_lib()
         if self.fb_bpp == 16:
-            if is_uyvy:
-                rgb_frame = convert_uyvy_to_rgb565(src, width, height, src_stride)
+            if c_lib:
+                func = c_lib.conv_uyvy_rgb565 if is_uyvy else c_lib.conv_yuyv_rgb565
+                out = bytearray(width * height * 2)
+                out_ptr = (ctypes.c_char * len(out)).from_buffer(out)
+                func(_get_ptr(src), ctypes.byref(out_ptr), width, height, src_stride)
+                rgb_frame = out
             else:
-                rgb_frame = convert_yuyv_to_rgb565(src, width, height, src_stride)
+                if is_uyvy:
+                    rgb_frame = convert_uyvy_to_rgb565(src, width, height, src_stride)
+                else:
+                    rgb_frame = convert_yuyv_to_rgb565(src, width, height, src_stride)
             row_bytes = width * 2
             for y in range(height):
                 fb_off = y * fb_stride
@@ -585,10 +779,17 @@ class HdmiPassthrough:
                 mm[fb_off:fb_off + row_bytes] = rgb_frame[src_off:src_off + row_bytes]
 
         elif self.fb_bpp == 32:
-            if is_uyvy:
-                rgb_frame = convert_uyvy_to_argb8888(src, width, height, src_stride)
+            if c_lib:
+                func = c_lib.conv_uyvy_argb8888 if is_uyvy else c_lib.conv_yuyv_argb8888
+                out = bytearray(width * height * 4)
+                out_ptr = (ctypes.c_char * len(out)).from_buffer(out)
+                func(_get_ptr(src), ctypes.byref(out_ptr), width, height, src_stride)
+                rgb_frame = out
             else:
-                rgb_frame = convert_yuyv_to_argb8888(src, width, height, src_stride)
+                if is_uyvy:
+                    rgb_frame = convert_uyvy_to_argb8888(src, width, height, src_stride)
+                else:
+                    rgb_frame = convert_yuyv_to_argb8888(src, width, height, src_stride)
             row_bytes = width * 4
             for y in range(height):
                 fb_off = y * fb_stride
